@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<QCARConfig xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="qcar_config.xsd">
+  <Tracking>
+    <ImageTarget name="MissionPad8" size="0.192000 0.192000" />
+    <ImageTarget name="MissionPad7" size="0.192000 0.192000" />
+    <ImageTarget name="MissionPad6" size="0.192000 0.192000" />
+    <ImageTarget name="MissionPad5" size="0.192000 0.192000" />
+    <ImageTarget name="MissionPad4" size="0.192000 0.192000" />
+    <ImageTarget name="MissionPad3" size="0.192000 0.192000" />
+    <ImageTarget name="MissionPad2" size="0.192000 0.192000" />
+    <ImageTarget name="MissionPad1" size="0.192000 0.192000" />
+  </Tracking>
+</QCARConfig>
