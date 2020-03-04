@@ -71,34 +71,25 @@ public class MultiplayerManager : MonoBehaviour
             _telloClient.Close();
     }
 
+    private float _filteredDroneHeight = 0;
     private void Update()
     {
         var client = _telloClient;
         if (client != null)
         {
-            var telemetry = client.Telemetry;
+            var telemetryHistory = client.TelemetryHistory;
+            var telemetry = telemetryHistory?[0];
             client.StickData.Throttle = (sbyte)(100 * joystick.outputVector.y);
-            /*
-            if (unchecked(++_frameNumber) % 30 == 0)
-            {
-                switch (_telloClient.MotorsStatus)
-                {
-                    case TelloMotorStatus.Off:
-                        droneEnginesToggleButton.image.sprite = takeOffSprite;
-                        droneEnginesToggleText.text = "take off";
-                        break;
-                    case TelloMotorStatus.On:
-                        droneEnginesToggleButton.image.sprite = landSprite;
-                        droneEnginesToggleText.text = "land";
-                        break;
-                }
-            }*/
             if (telemetry != null)
             {
+                var newHeight = telemetryHistory[0].Height;
+                var oldHeight = telemetryHistory[1] != null ? telemetryHistory[1].Height : 0;
+                _filteredDroneHeight = 0.2283F * _filteredDroneHeight + 0.3859F * (newHeight + oldHeight);
+
                 augmentedDrone.transform.localPosition = new Vector3(
                         augmentedDrone.transform.localPosition.x,
                         augmentedDrone.transform.localPosition.y,
-                        10 + telemetry.Height);
+                        20 + _filteredDroneHeight);
                 statusText.text = $"height: {telemetry.Height} mpz: {telemetry.MissionPadCoordinates.Z} mid: {telemetry.MissionPadId}";
             }
         }

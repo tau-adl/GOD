@@ -38,6 +38,7 @@ public class TelloSdkClient : IDisposable
     public const string DefaultRegion = "US";
     public const int DefaultTimeoutMS = 3000;
     public const int DefaultRetries = 0;
+    public const int TelemetryHistorySize = 1;
 
     #endregion Defaults
 
@@ -48,8 +49,8 @@ public class TelloSdkClient : IDisposable
     private readonly TelloSdkClientFlags _clientFlags;
     private readonly CancellationTokenSource _cts = new CancellationTokenSource();
     private readonly System.Timers.Timer _stickDataTimer = new System.Timers.Timer();
+    private TelloSdkTelemetry[] _telemetryHistory = new TelloSdkTelemetry[1 + TelemetryHistorySize];
     private TelloSdkStickData _stickData = new TelloSdkStickData();
-    private TelloSdkTelemetry _telemetry;
     private bool _enableMissionMode;
 
     #endregion Private Fields
@@ -69,12 +70,13 @@ public class TelloSdkClient : IDisposable
 
     public byte? BatteryPercent
     {
-        get { return _telemetry?.BatteryPercent; }
+        get { return Telemetry?.BatteryPercent; }
     }
 
     public TelloSdkClientFlags ClientFlags { get => _clientFlags; }
 
-    public TelloSdkTelemetry Telemetry { get => _telemetry; }
+    public TelloSdkTelemetry[] TelemetryHistory { get => _telemetryHistory; }
+    public TelloSdkTelemetry Telemetry { get => _telemetryHistory[0]; }
 
     public string HostName { get; private set; }
 
@@ -205,30 +207,32 @@ public class TelloSdkClient : IDisposable
     {
         while (true)
         {
+            var history = new TelloSdkTelemetry[1 + TelemetryHistorySize];
+            history[1] = _telemetryHistory[0];
             try
             {
                 _cts.Token.ThrowIfCancellationRequested();
                 var recvTask = _telemetryChannel.ReceiveAsync();
                 recvTask.Wait(_cts.Token);
                 var text = Encoding.ASCII.GetString(recvTask.Result.Buffer);
-                bool ok = TelloSdkTelemetry.TryParse(text, out _telemetry);
+                bool ok = TelloSdkTelemetry.TryParse(text, out var telemetry);                
                 if (ok)
                 {
-                    if (_lastMotorTimeValue == _telemetry.MotorTime)
+                    history[0] = telemetry;
+                    if (_lastMotorTimeValue == telemetry.MotorTime)
                         MotorsStatus = TelloMotorStatus.Off;
-                    else if (_lastMotorTimeValue < _telemetry.MotorTime)
+                    else if (_lastMotorTimeValue < telemetry.MotorTime)
                         MotorsStatus = TelloMotorStatus.On;
-                    else if (_lastMotorTimeValue < _telemetry.MotorTime)
+                    else if (_lastMotorTimeValue < telemetry.MotorTime)
                         MotorsStatus = TelloMotorStatus.Unknown;
-                    _lastMotorTimeValue = _telemetry.MotorTime;
+                    _lastMotorTimeValue = telemetry.MotorTime;
                 }
                 else
                 {
                     System.Diagnostics.Debug.Print("Failed to parse Tello telemetry.");
                     MotorsStatus = TelloMotorStatus.Unknown;
-                    _telemetry = null;
                 }
-                
+                _telemetryHistory = history;
             }
             catch (AggregateException)
             {
@@ -250,11 +254,14 @@ public class TelloSdkClient : IDisposable
             {
                 System.Diagnostics.Debug.Print(ex.ToString());
                 MotorsStatus = TelloMotorStatus.Unknown;
-                _telemetry = null;
+            }
+            finally
+            {
+                _telemetryHistory = history;
             }
         }
         MotorsStatus = TelloMotorStatus.Unknown;
-        _telemetry = null;
+        _telemetryHistory[0] = null;
     }
 
     public async Task<bool> StartAsync()
