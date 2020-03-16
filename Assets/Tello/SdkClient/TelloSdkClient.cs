@@ -211,9 +211,15 @@ public class TelloSdkClient : IDisposable
             history[1] = _telemetryHistory[0];
             try
             {
-                _cts.Token.ThrowIfCancellationRequested();
+                // receive a telemetry datagram from the drone:
                 var recvTask = _telemetryChannel.ReceiveAsync();
-                recvTask.Wait(_cts.Token);
+                if (!recvTask.Wait(1000, _cts.Token))
+                {
+                    // timeout - try to tell the drone to enter SDK mode:
+                    _ = SendCommandAsync("command", 0, 0);
+                    continue;
+                }
+                // parse telemetry datagram:
                 var text = Encoding.ASCII.GetString(recvTask.Result.Buffer);
                 bool ok = TelloSdkTelemetry.TryParse(text, out var telemetry);                
                 if (ok)
