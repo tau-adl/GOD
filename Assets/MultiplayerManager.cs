@@ -33,10 +33,12 @@ public class MultiplayerManager : MonoBehaviour
     private string _lastIncomingGodUpdate;
     private DateTime _lastIncomingGodUpdateTime;
     private bool _partnerStatusOk = false;
-    private bool _partnerStatusChanged = true;
+    private bool _droneStatusOk = false;
+    private int _partnerStatusChanged = 1;
     private IPAddress _localIPAddress;
     private IPAddress _remoteIPAddress;
     private TMP_Text statusText;
+    private bool _gameStarted;
 
     public GodScore Score { get; private set; }
 
@@ -47,23 +49,41 @@ public class MultiplayerManager : MonoBehaviour
 
     public void StartGame()
     {
-        _ = _telloClient.TakeOffAsync();
-        // stop any ball motion:
-        _ballRigidbody.isKinematic = true;
-        _ballRigidbody.transform.localPosition = _initialBallPosition;
-        // allow ball motion:
-        _ballRigidbody.isKinematic = false;
-        _ballRigidbody.useGravity = true;
-        _ballRigidbody.AddForce(new Vector3(ballForceX, 10F, 0));
+        // ReSharper disable once InconsistentlySynchronizedField
+        if (!_gameStarted)
+        {
+            lock (startButton)
+            {
+                if (!_gameStarted)
+                {
+                    _ = _telloClient.TakeOffAsync();
+                    // stop any ball motion:
+                    _ballRigidbody.isKinematic = true;
+                    _ballRigidbody.transform.localPosition = _initialBallPosition;
+                    // allow ball motion:
+                    _ballRigidbody.isKinematic = false;
+                    _ballRigidbody.useGravity = true;
+                    _ballRigidbody.AddForce(new Vector3(ballForceX, 10F, 0));
+                    _gameStarted = true;
+                    startButton.SetActive(false);
+                }
+            }
+        }
     }
 
     public void StopGame()
     {
-        _ = _telloClient.LandAsync();
+        lock (startButton)
+        {
+            _ballRigidbody.isKinematic = true;
+            _ = _telloClient.LandAsync();
+            _gameStarted = false;
+        }
     }
 
     private void OnVuforiaStarted()
     {
+        VuforiaARController.Instance.UnregisterVuforiaStartedCallback(OnVuforiaStarted);
         // set camera settings:
         CameraDevice.Instance.SetFocusMode(CameraDevice.FocusMode.FOCUS_MODE_CONTINUOUSAUTO);
         CameraDevice.Instance.SetField("exposure-time", "auto");
@@ -72,8 +92,15 @@ public class MultiplayerManager : MonoBehaviour
 
     private void OnDestroy()
     {
-        _telloClient?.Close();
-        VuforiaARController.Instance.UnregisterVuforiaStartedCallback(OnVuforiaStarted);
+        try
+        {
+            _telloClient?.Close();
+            VuforiaARController.Instance.UnregisterVuforiaStartedCallback(OnVuforiaStarted);
+        }
+        catch
+        {
+            // suppress exceptions.
+        }
     }
 
     private bool GodDiscovery_PartnerDiscovered(GodDiscovery sender, IPEndPoint remoteEndPoint, string additionalFields)
@@ -84,7 +111,7 @@ public class MultiplayerManager : MonoBehaviour
         _networking.Connect(localIPAddress, remoteEndPoint.Address);
         _localIPAddress = localIPAddress;
         _remoteIPAddress = remoteEndPoint.Address;
-        _partnerStatusChanged = true;
+        _partnerStatusChanged = 1;
         return true;
     }
 
@@ -300,39 +327,67 @@ public class MultiplayerManager : MonoBehaviour
 
     private void Update()
     {
-        var client = _telloClient;
-
-        if (client != null)
+        try
         {
-            // update stick data:
-            client.StickData.Throttle = (sbyte) (100 * leftJoystick.outputVector.y);
-            client.StickData.Roll = (sbyte) (100 * rightJoystick.outputVector.y);
-            client.StickData.Pitch = (sbyte) (-100 * rightJoystick.outputVector.x);
-            // update real drone position:
-            UpdateRealDronePosition();
-            // send update message:
-            SendGodUpdate();
-            // process update message:
-            ProcessLastGodUpdate();
-        }
-
-        if (!_partnerStatusChanged)
-        {
-            var connectionStatusOk = (DateTime.Now - _lastIncomingGodUpdateTime).TotalSeconds < ConnectionTimeoutMS;
-            if (connectionStatusOk != _partnerStatusOk)
+            var client = _telloClient;
+            var droneStatusOk = false;
+            if (client != null)
             {
-                _partnerStatusOk = connectionStatusOk;
-                _partnerStatusChanged = true;
+                droneStatusOk = client.Telemetry != null;
+                // update stick data:
+                client.StickData.Throttle = (sbyte) (100 * leftJoystick.outputVector.y);
+                client.StickData.Roll = (sbyte) (100 * rightJoystick.outputVector.y);
+                client.StickData.Pitch = (sbyte) (-100 * rightJoystick.outputVector.x);
+                // update real drone position:
+                UpdateRealDronePosition();
+                // send update message:
+                SendGodUpdate();
+                // process update message:
+                ProcessLastGodUpdate();
+            }
+
+            var partnerStatusOk = _partnerStatusOk;
+            if (_partnerStatusChanged == 0)
+            {
+                partnerStatusOk = (DateTime.Now - _lastIncomingGodUpdateTime).TotalSeconds < ConnectionTimeoutMS;
+                if (partnerStatusOk != _partnerStatusOk)
+                {
+                    _partnerStatusOk = partnerStatusOk;
+                    _partnerStatusChanged = 1;
+                }
+            }
+
+            var droneStatusChanged = _droneStatusOk != droneStatusOk;
+            var partnerStatusChanged = Interlocked.Exchange(ref _partnerStatusChanged, 0) != 0;
+            if (partnerStatusChanged || droneStatusChanged)
+            {
+                if (partnerStatusOk && droneStatusOk)
+                {
+                    statusText.text = $"Connected to {_remoteIPAddress}";
+                    lock (startButton)
+                    {
+                        startButton.SetActive(!_gameStarted);
+                    }
+                }
+                else
+                {
+                    statusText.text = partnerStatusOk
+                        ? "Waiting for the drone to connect..."
+                        : "Looking for partners...";
+                    lock (startButton)
+                    {
+                        startButton.SetActive(false);
+                        _ballRigidbody.isKinematic = true;
+                        _gameStarted = false;
+                    }
+                }
+
+                _droneStatusOk = droneStatusOk;
             }
         }
-
-        if (_partnerStatusChanged)
+        catch (Exception ex)
         {
-            statusText.text = _partnerStatusOk
-                ? $"Connected to {_remoteIPAddress}"
-                : "Looking for partners...";
-            _partnerStatusChanged = false;
-            startButton.SetActive(_partnerStatusOk && _telloClient.Telemetry != null);
+            Debug.LogError(ex);
         }
     }
 }

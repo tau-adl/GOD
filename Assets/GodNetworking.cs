@@ -35,9 +35,9 @@ public class GodNetworking : MonoBehaviour
         {
             Disconnect();
         }
-        catch (Exception ex)
+        catch
         {
-            Debug.LogError(ex);
+            // suppress exceptions.
         }
     }
 

@@ -83,14 +83,20 @@ public class GodDiscovery : MonoBehaviour
     /// Provides a mechanism for cancelling the discovery thread.
     /// </summary>
     private CancellationTokenSource _cts;
+
     /// <summary>
-    /// The broadcast message that is transmitted by this end-point.
+    /// The broadcast message that is transmitted by this end-point, excluding additional fields.
+    /// </summary>
+    private byte[] _broadcastMessagePrefix;
+    /// <summary>
+    /// The broadcast message that is transmitted by this end-point, including additional fields.
     /// </summary>
     private byte[] _broadcastMessage;
     /// <summary>
     /// The additional fields from the partner's original discovery packet.
     /// </summary>
     private string _partnerAdditionalFields;
+
     /// <summary>
     /// increased on each new discovery session (see <see cref="StartDiscovery"/>).
     /// </summary>
@@ -155,9 +161,9 @@ public class GodDiscovery : MonoBehaviour
         {
             StopDiscovery();
         }
-        catch (Exception ex)
+        catch
         {
-            Debug.LogError(ex);
+            // suppress exceptions
         }
     }
 
@@ -209,14 +215,14 @@ public class GodDiscovery : MonoBehaviour
 
     private string GetDiscoveryAdditionalFields(byte[] buffer, int offset, int count)
     {
-        var broadcast = _broadcastMessage;
-        if (buffer.Length - offset < count || count < broadcast.Length)
+        var prefix = _broadcastMessagePrefix;
+        if (buffer.Length - offset < count || count < prefix.Length)
             return null;
         for (int i = 0; i < count; ++i)
         {
-            if (buffer[offset + i] != broadcast[i])
+            if (buffer[offset + i] != prefix[i])
                 return null;
-            if (broadcast[i] == '\n')
+            if (prefix[i] == '\n')
                 return Encoding.UTF8.GetString(buffer, offset + i + 1, count - i - 1);
         }
         return null;
@@ -425,10 +431,11 @@ public class GodDiscovery : MonoBehaviour
             return; // already started.
         Debug.Log($"{GetType().Name}.{nameof(StartDiscovery)}() called.");
         // initialize the broadcast message:
-        var additionalFields = $"instance: {Interlocked.Increment(ref _instanceNumber)}";
-        _broadcastMessage = Encoding.UTF8.GetBytes(
-            $"{DiscoveryPrefix} {Application.companyName}.{Application.productName} {Application.version} {RoomName ?? DefaultRoomName}\n" +
-            additionalFields);
+        _broadcastMessagePrefix = Encoding.UTF8.GetBytes($"{DiscoveryPrefix} {Application.companyName}.{Application.productName} {Application.version} {RoomName ?? DefaultRoomName}\n");
+        var additionalFields = Encoding.UTF8.GetBytes($"instance: {Interlocked.Increment(ref _instanceNumber)}");
+        _broadcastMessage = new byte[_broadcastMessagePrefix.Length + additionalFields.Length];
+        Buffer.BlockCopy(_broadcastMessagePrefix, 0, _broadcastMessage, 0, _broadcastMessagePrefix.Length);
+        Buffer.BlockCopy(additionalFields, 0, _broadcastMessage, _broadcastMessagePrefix.Length, additionalFields.Length);
         if (_broadcastMessage.Length > MaxUdpPayloadSize)
             throw new ApplicationException("Network discovery message is too long!");
 
