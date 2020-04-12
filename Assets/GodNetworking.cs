@@ -57,7 +57,7 @@ public class GodNetworking : MonoBehaviour
                 if (count == 0)
                     break; // the socket has been closed.
                 // process datagram:
-                var keepConnection = OnDatagramReceived((IPEndPoint)socket.RemoteEndPoint, buffer, 0, count);
+                var keepConnection = OnDatagramReceived((IPEndPoint) socket.RemoteEndPoint, buffer, 0, count);
                 if (!keepConnection)
                 {
                     socket.Close();
@@ -69,9 +69,14 @@ public class GodNetworking : MonoBehaviour
         {
             // suppress exception.
         }
+        catch (InvalidOperationException)
+        {
+            // suppress exception.
+        }
         catch (SocketException sex)
         {
-            if (sex.SocketErrorCode != SocketError.OperationAborted)
+            if (sex.SocketErrorCode != SocketError.OperationAborted &&
+                sex.SocketErrorCode != SocketError.Interrupted)
                 Debug.LogError(sex.ToString());
         }
         catch (Exception ex)
@@ -108,7 +113,7 @@ public class GodNetworking : MonoBehaviour
             {
                 _socket.Close();
             }
-            catch (ObjectDisposedException)
+            catch (InvalidOperationException)
             {
                 // suppress exception.
             }
@@ -147,11 +152,12 @@ public class GodNetworking : MonoBehaviour
         var socket = new Socket(localIPAddress.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
         _socket = socket;
         socket.Bind(new IPEndPoint(localIPAddress, GameUdpPort));
+        Debug.Log($"Bound to {socket.LocalEndPoint} (UDP)");
         // connect to the partner:
         socket.Connect(new IPEndPoint(partnerIPAddress, GameUdpPort));
         IsMaster = CompareTo(localIPAddress, partnerIPAddress) <= 0;
-        Debug.Log($"Connected to partner: {partnerIPAddress}:{GameUdpPort} (IsMaster = {IsMaster})");
-        // setup comminucation thread:
+        Debug.Log($"Connected to partner: {socket.RemoteEndPoint} (IsMaster = {IsMaster})");
+        // setup communication thread:
         var communicationThread = new Thread(CommunicationThreadWork)
         {
             IsBackground = true,
@@ -164,8 +170,17 @@ public class GodNetworking : MonoBehaviour
 
     public int Send(byte[] payload)
     {
-        var socket = _socket;
-        return socket != null ? socket.Send(payload) : 0;
+        try
+        {
+            var socket = _socket;
+            return socket != null && socket.Connected
+                ? socket.Send(payload)
+                : 0;
+        }
+        catch (InvalidOperationException)
+        {
+            return 0;
+        }
     }
 
     #endregion Public Methods

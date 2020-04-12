@@ -76,10 +76,6 @@ public class GodDiscovery : MonoBehaviour
     /// </summary>
     private Socket _discoveryIPv4;
     /// <summary>
-    /// The IPv4 broadcast remote end-point.
-    /// </summary>
-    private IPEndPoint _broadcastIPv4EndPoint;
-    /// <summary>
     /// The discovery thread.
     /// </summary>
     private Thread _discoveryThread;
@@ -286,13 +282,14 @@ public class GodDiscovery : MonoBehaviour
                     SocketFlags.None, ref state.RemoteEndPoint, IPv4Discovery_EndReceiveFrom, state);
             }
         }
-        catch (ObjectDisposedException)
+        catch (InvalidOperationException)
         {
             // suppress exception.
         }
         catch (SocketException sex)
         {
-            if (sex.SocketErrorCode != SocketError.OperationAborted)
+            if (sex.SocketErrorCode != SocketError.OperationAborted &&
+                sex.SocketErrorCode != SocketError.Interrupted)
                 Debug.LogError(sex.ToString());
         }
         catch (Exception ex)
@@ -355,6 +352,7 @@ public class GodDiscovery : MonoBehaviour
                                 var broadcastAddress = NetUtils.GetBroadcastAddress(addr.Address, addr.IPv4Mask);
                                 var broadcastEndPoint = new IPEndPoint(broadcastAddress, DiscoveryPort);
                                 // send broadcast:
+                                Debug.Log($"Sending discovery packet to {broadcastEndPoint}");
                                 _discoveryIPv4.BeginSendTo(_broadcastMessage, 0, _broadcastMessage.Length,
                                     SocketFlags.None, broadcastEndPoint, IPv4Discovery_EndSendTo, sendState);
                                 break;
@@ -411,7 +409,7 @@ public class GodDiscovery : MonoBehaviour
             {
                 _discoveryIPv4.Close();
             }
-            catch (ObjectDisposedException)
+            catch (InvalidOperationException)
             {
                 // suppress exception.
             }
@@ -443,7 +441,7 @@ public class GodDiscovery : MonoBehaviour
             EnableBroadcast = true
         };
         _discoveryIPv4.Bind(new IPEndPoint(IPAddress.Any, DiscoveryPort));
-        _broadcastIPv4EndPoint = new IPEndPoint(IPAddress.Broadcast, DiscoveryPort);
+        Debug.Log($"Discovery socket bound to {_discoveryIPv4.LocalEndPoint}.");
         // create the discovery thread:
         _discoveryThread = new Thread(DoDiscovery)
         {

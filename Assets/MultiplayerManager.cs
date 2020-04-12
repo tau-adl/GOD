@@ -1,17 +1,16 @@
 ﻿using System;
 using System.Net;
 using System.Text;
+using System.Threading;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using Vuforia;
 
 public class MultiplayerManager : MonoBehaviour
 {
-
-    public static MultiplayerMode MultiplayerMode { get; set; } = MultiplayerMode.LocalServer;
-
     private TelloSdkClient _telloClient;
 
+    public int ConnectionTimeoutMS = 2000;
     public PAUI_Joystick leftJoystick;
     public PAUI_Joystick rightJoystick;
     public GameObject batteryPanel;
@@ -30,6 +29,11 @@ public class MultiplayerManager : MonoBehaviour
     private GodDiscovery _discovery;
     private GodNetworking _networking;
     private string _lastIncomingGodUpdate;
+    private DateTime _lastIncomingGodUpdateTime;
+    private bool _connectionStatusOk = false;
+    private bool _connectionStatusChanged = true;
+    private IPAddress _localIPAddress;
+    private IPAddress _remoteIPAddress;
 
     public GodScore Score { get; private set; }
 
@@ -74,6 +78,9 @@ public class MultiplayerManager : MonoBehaviour
         if (localIPAddress == null)
             return false;
         _networking.Connect(localIPAddress, remoteEndPoint.Address);
+        _localIPAddress = localIPAddress;
+        _remoteIPAddress = remoteEndPoint.Address;
+        _connectionStatusChanged = true;
         return true;
     }
 
@@ -88,6 +95,7 @@ public class MultiplayerManager : MonoBehaviour
         {
             case GodMessageType.Update:
                 _lastIncomingGodUpdate = godMessage;
+                _lastIncomingGodUpdateTime = DateTime.Now;
                 return true;
             default:
                 // unsupported GOD message.
@@ -277,21 +285,39 @@ public class MultiplayerManager : MonoBehaviour
     }
 
     private void Update()
-    { 
+    {
         var client = _telloClient;
 
         if (client != null)
         {
             // update stick data:
-            client.StickData.Throttle = (sbyte)(100 * leftJoystick.outputVector.y);
-            client.StickData.Roll = (sbyte)(100 * rightJoystick.outputVector.y);
-            client.StickData.Pitch = (sbyte)(-100 * rightJoystick.outputVector.x);
+            client.StickData.Throttle = (sbyte) (100 * leftJoystick.outputVector.y);
+            client.StickData.Roll = (sbyte) (100 * rightJoystick.outputVector.y);
+            client.StickData.Pitch = (sbyte) (-100 * rightJoystick.outputVector.x);
             // update real drone position:
             UpdateRealDronePosition();
             // send update message:
             SendGodUpdate();
             // process update message:
             ProcessLastGodUpdate();
+        }
+
+        if (!_connectionStatusChanged)
+        {
+            var connectionStatusOk = (DateTime.Now - _lastIncomingGodUpdateTime).TotalSeconds < ConnectionTimeoutMS;
+            if (connectionStatusOk != _connectionStatusOk)
+            {
+                _connectionStatusOk = connectionStatusOk;
+                _connectionStatusChanged = true;
+            }
+        }
+
+        if (_connectionStatusChanged)
+        {
+            statusText.text = _connectionStatusOk
+                ? $"Connected to {_remoteIPAddress}"
+                : "Looking for partners...";
+            _connectionStatusChanged = false;
         }
     }
 }
