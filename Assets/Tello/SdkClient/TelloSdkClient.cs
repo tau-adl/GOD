@@ -20,13 +20,6 @@ public enum TelloSdkClientFlags
     All = Control | Telemetry | Video
 }
 
-public enum TelloMotorStatus
-{
-    Unknown,
-    Off,
-    On
-}
-
 public class TelloSdkClient : IDisposable
 {
     #region Defaults
@@ -61,11 +54,6 @@ public class TelloSdkClient : IDisposable
     {
         get => _stickData;
         set => _stickData = value ?? throw new ArgumentNullException(nameof(value));
-    }
-
-    public TelloMotorStatus MotorsStatus
-    {
-        get; private set;
     }
 
     public byte? BatteryPercent
@@ -225,20 +213,12 @@ public class TelloSdkClient : IDisposable
                 if (ok)
                 {
                     history[0] = telemetry;
-                    if (_lastMotorTimeValue == telemetry.MotorTime)
-                        MotorsStatus = TelloMotorStatus.Off;
-                    else if (_lastMotorTimeValue < telemetry.MotorTime)
-                        MotorsStatus = TelloMotorStatus.On;
-                    else if (_lastMotorTimeValue < telemetry.MotorTime)
-                        MotorsStatus = TelloMotorStatus.Unknown;
                     _lastMotorTimeValue = telemetry.MotorTime;
                 }
                 else
                 {
-                    System.Diagnostics.Debug.Print("Failed to parse Tello telemetry.");
-                    MotorsStatus = TelloMotorStatus.Unknown;
+                    Debug.LogError("Failed to parse Tello telemetry.");
                 }
-                _telemetryHistory = history;
             }
             catch (AggregateException)
             {
@@ -259,14 +239,12 @@ public class TelloSdkClient : IDisposable
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.Print(ex.ToString());
-                MotorsStatus = TelloMotorStatus.Unknown;
             }
             finally
             {
                 _telemetryHistory = history;
             }
         }
-        MotorsStatus = TelloMotorStatus.Unknown;
         _telemetryHistory[0] = null;
     }
 

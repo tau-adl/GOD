@@ -2,6 +2,7 @@
 using System.Net;
 using System.Text;
 using System.Threading;
+using TMPro;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using Vuforia;
@@ -14,11 +15,12 @@ public class MultiplayerManager : MonoBehaviour
     public PAUI_Joystick leftJoystick;
     public PAUI_Joystick rightJoystick;
     public GameObject batteryPanel;
-    public GameObject droneEnginesToggle;
+    public GameObject startButton;
+    public GameObject stopButton;
     public GameObject augmentedDrone;
     public GameObject realDrone;
     public GameObject ball;
-    public UnityEngine.UI.Text statusText;
+    public GameObject statusTextObject;
     public UnityEngine.UI.Text scoreText;
     public float ballForceX = 50.0F;
 
@@ -30,10 +32,11 @@ public class MultiplayerManager : MonoBehaviour
     private GodNetworking _networking;
     private string _lastIncomingGodUpdate;
     private DateTime _lastIncomingGodUpdateTime;
-    private bool _connectionStatusOk = false;
-    private bool _connectionStatusChanged = true;
+    private bool _partnerStatusOk = false;
+    private bool _partnerStatusChanged = true;
     private IPAddress _localIPAddress;
     private IPAddress _remoteIPAddress;
+    private TMP_Text statusText;
 
     public GodScore Score { get; private set; }
 
@@ -42,13 +45,9 @@ public class MultiplayerManager : MonoBehaviour
         SceneManager.LoadScene("SettingsMenu");
     }
 
-    public async void SendDroneTakeOffCommand()
-    {
-        await _telloClient.TakeOffAsync();
-    }
-
     public void StartGame()
     {
+        _ = _telloClient.TakeOffAsync();
         // stop any ball motion:
         _ballRigidbody.isKinematic = true;
         _ballRigidbody.transform.localPosition = _initialBallPosition;
@@ -56,6 +55,11 @@ public class MultiplayerManager : MonoBehaviour
         _ballRigidbody.isKinematic = false;
         _ballRigidbody.useGravity = true;
         _ballRigidbody.AddForce(new Vector3(ballForceX, 10F, 0));
+    }
+
+    public void StopGame()
+    {
+        _ = _telloClient.LandAsync();
     }
 
     private void OnVuforiaStarted()
@@ -80,7 +84,7 @@ public class MultiplayerManager : MonoBehaviour
         _networking.Connect(localIPAddress, remoteEndPoint.Address);
         _localIPAddress = localIPAddress;
         _remoteIPAddress = remoteEndPoint.Address;
-        _connectionStatusChanged = true;
+        _partnerStatusChanged = true;
         return true;
     }
 
@@ -108,6 +112,7 @@ public class MultiplayerManager : MonoBehaviour
     {
         VuforiaARController.Instance.RegisterVuforiaStartedCallback(OnVuforiaStarted);
         Screen.orientation = ScreenOrientation.LandscapeLeft;
+        statusText = statusTextObject.GetComponent<TMP_Text>();
         Score = new GodScore();
 
         _ballRigidbody = ball.GetComponent<Rigidbody>();
@@ -311,22 +316,23 @@ public class MultiplayerManager : MonoBehaviour
             ProcessLastGodUpdate();
         }
 
-        if (!_connectionStatusChanged)
+        if (!_partnerStatusChanged)
         {
             var connectionStatusOk = (DateTime.Now - _lastIncomingGodUpdateTime).TotalSeconds < ConnectionTimeoutMS;
-            if (connectionStatusOk != _connectionStatusOk)
+            if (connectionStatusOk != _partnerStatusOk)
             {
-                _connectionStatusOk = connectionStatusOk;
-                _connectionStatusChanged = true;
+                _partnerStatusOk = connectionStatusOk;
+                _partnerStatusChanged = true;
             }
         }
 
-        if (_connectionStatusChanged)
+        if (_partnerStatusChanged)
         {
-            statusText.text = _connectionStatusOk
+            statusText.text = _partnerStatusOk
                 ? $"Connected to {_remoteIPAddress}"
                 : "Looking for partners...";
-            _connectionStatusChanged = false;
+            _partnerStatusChanged = false;
+            startButton.SetActive(_partnerStatusOk && _telloClient.Telemetry != null);
         }
     }
 }
