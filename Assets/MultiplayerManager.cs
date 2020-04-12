@@ -148,10 +148,12 @@ public class MultiplayerManager : MonoBehaviour
             switch (go.name)
             {
                 case "LeftWall":
-                    scoreText.text = $"{++Score.MyScore}/{Score.TheirScore}";
+                    ++Score.MyScore;
+                    scoreText.text = $"{Score.MyScore}/{Score.TheirScore}";
                     break;
                 case "RightWall":
-                    scoreText.text = $"{Score.MyScore}/{++Score.TheirScore}";
+                    ++Score.TheirScore;
+                    scoreText.text = $"{Score.MyScore}/{Score.TheirScore}";
                     break;
             }
         }
@@ -230,20 +232,27 @@ public class MultiplayerManager : MonoBehaviour
         }
         // update drone position:
         if (dronePosition.HasValue)
-            augmentedDrone.transform.localPosition = dronePosition.Value;
+            augmentedDrone.transform.localPosition = new Vector3(
+                augmentedDrone.transform.localPosition.x,
+                dronePosition.Value.y,
+                augmentedDrone.transform.localPosition.z);
         
         if (!_networking.IsMaster)
         {
             // update score according to master:
-            if (score != null)
-                Score = score;
-            // update ball position and speed according to master:
-            if (ballPosition.HasValue && ballSpeed.HasValue)
+            if (score != null && !Score.ScoreEquals(score))
             {
-                _ballRigidbody.isKinematic = true;
-                _ballRigidbody.velocity = ballSpeed.Value;
-                ball.transform.localPosition = ballPosition.Value;
-                _ballRigidbody.isKinematic = false;
+                Score = score;
+                scoreText.text = $"{Score.MyScore}/{Score.TheirScore}";
+
+                // update ball position and speed according to master:
+                if (ballPosition.HasValue && ballSpeed.HasValue)
+                {
+                    _ballRigidbody.isKinematic = true;
+                    _ballRigidbody.velocity = ballSpeed.Value;
+                    ball.transform.localPosition = ballPosition.Value;
+                    _ballRigidbody.isKinematic = false;
+                }
             }
         }
     }

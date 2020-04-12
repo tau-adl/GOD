@@ -1,4 +1,6 @@
-﻿public sealed class GodScore
+﻿using System.Runtime.Remoting.Messaging;
+
+public sealed class GodScore
 {
     public uint MyScore { get; set; }
     public uint TheirScore { get; set; }
@@ -37,5 +39,10 @@
         }
         value = default;
         return false;
+    }
+
+    public bool ScoreEquals(GodScore other)
+    {
+        return other != null && MyScore == other.MyScore && TheirScore == other.TheirScore;
     }
 }
