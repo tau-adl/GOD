@@ -193,6 +193,7 @@ public class TelloSdkClient : IDisposable
     private uint _lastMotorTimeValue;
     private void TelemetryChannelLoop()
     {
+        Debug.Log($"{GetType().Name}: Telemetry thread started.");
         while (true)
         {
             var history = new TelloSdkTelemetry[1 + TelemetryHistorySize];
@@ -204,6 +205,7 @@ public class TelloSdkClient : IDisposable
                 if (!recvTask.Wait(1000, _cts.Token))
                 {
                     // timeout - try to tell the drone to enter SDK mode:
+                    Debug.LogWarning($"{GetType().Name}: Timeout while waiting for a telemetry datagram.");
                     _ = SendCommandAsync("command", 0, 0);
                     continue;
                 }
@@ -238,7 +240,7 @@ public class TelloSdkClient : IDisposable
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.Print(ex.ToString());
+                Debug.LogError(ex);
             }
             finally
             {
@@ -246,6 +248,7 @@ public class TelloSdkClient : IDisposable
             }
         }
         _telemetryHistory[0] = null;
+        Debug.Log($"{GetType().Name}: Telemetry thread exiting.");
     }
 
     public async Task<bool> StartAsync()

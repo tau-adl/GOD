@@ -25,7 +25,7 @@ public class DroneSettingsManager : MonoBehaviour
         wifiSsidText = wifiSsidGameObject.GetComponentInChildren<UnityEngine.UI.InputField>();
         wifiPasswordText = wifiPasswordGameObject.GetComponentInChildren<TMP_InputField>();
         wifiModeDropdown = wifiModeGameObject.GetComponentInChildren<TMP_Dropdown>();
-        droneIPAddressText.text = PlayerPrefs.GetString("DroneIPAddress", TelloSdkClient.DefaultHostName);
+        droneIPAddressText.text = PlayerPrefs.GetString("DroneHostName", TelloSdkClient.DefaultHostName);
         wifiSsidText.text = PlayerPrefs.GetString("WifiSSID", "");
         wifiPasswordText.text = PlayerPrefs.GetString("WifiPassword", "");
         wifiModeDropdown.value = PlayerPrefs.GetInt("DroneWifiMode", 0);
@@ -35,7 +35,7 @@ public class DroneSettingsManager : MonoBehaviour
     {
         try
         {
-            PlayerPrefs.SetString("DroneIPAddress", droneIPAddressText.text);
+            PlayerPrefs.SetString("DroneHostName", droneIPAddressText.text);
             var changed =
                 wifiSsidText.text != PlayerPrefs.GetString("WifiSSID", "") ||
                 wifiPasswordText.text != PlayerPrefs.GetString("WifiPassword", "") ||
