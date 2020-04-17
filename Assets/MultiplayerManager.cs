@@ -79,7 +79,7 @@ public class MultiPlayerManager : MonoBehaviour
         if (_droneTelemetry != null)
             _droneTelemetry.StatusChanged -= DroneTelemetry_StatusChanged;
         if (_droneControl != null)
-            _droneControl.StatusChanged -= TelloClient_StatusChanged;
+            _droneControl.StatusChanged -= DroneControl_StatusChanged;
         if (_userDialog != null)
         {
             _userDialog.OkButtonClick -= UserDialog_OkButtonClick;
@@ -95,7 +95,7 @@ public class MultiPlayerManager : MonoBehaviour
         // initialize private fields:
         _ballForceX = PlayerPrefs.GetFloat("BallForceX", 5.0F);
         _multiPlayerConnection = FindObjectOfType<GodMultiPlayerConnection>();
-        _multiPlayerConnection.SetDatagramReceivedCallback(GodNetworking_DatagramReceived);
+        _multiPlayerConnection.SetDatagramReceivedCallback(MultiPlayerConnection_DatagramReceived);
         _multiPlayerConnection.StatusChanged += MultiPlayerConnection_StatusChanged;
         _ballRigidbody = ball.GetComponent<Rigidbody>();
         _discovery = FindObjectOfType<GodDiscovery>();
@@ -175,10 +175,15 @@ public class MultiPlayerManager : MonoBehaviour
         }
     }
 
+    [UsedImplicitly]
     private void UpdateGameStatus()
     {
         var myFlags = (GameStatusFlags) _statusFlags;
         var partnerFlags = _lastIncomingGodUpdate?.GameStatus ?? GameStatusFlags.None;
+        var partnerReady = partnerFlags.HasFlag(GameStatusFlags.AllClear);
+        if (partnerReady ^ myFlags.HasFlag(GameStatusFlags.PartnerReady))
+            myFlags = ChangeStatusFlag(GameStatusFlags.PartnerReady, partnerReady);
+
         if (!_gameStarted)
         {
             if (myFlags.HasFlag(GameStatusFlags.UserReady))
@@ -201,8 +206,8 @@ public class MultiPlayerManager : MonoBehaviour
                         builder.Append("- Waiting for the drone to become ready...");
                     if (!myFlags.HasFlag(GameStatusFlags.PartnerConnected))
                         builder.Append("- Waiting for a partner to connect...");
-                    else if (!myFlags.HasFlag(GameStatusFlags.PartnerReady) || !partnerFlags.HasFlag(GameStatusFlags.AllClear))
-                        builder.Append("- Waiting for partner the become ready...");
+                    else if (!myFlags.HasFlag(GameStatusFlags.PartnerReady))
+                        builder.Append("- Waiting for the other player the become ready...");
                     _userDialog.BodyText = builder.ToString();
                     _userDialog.IsVisible = true;
                 }
@@ -399,11 +404,12 @@ public class MultiPlayerManager : MonoBehaviour
         var localIPAddress = NetUtils.GetLocalIPAddress(remoteEndPoint.Address);
         if (localIPAddress == null)
             return false;
+        SetStatusFlag(GameStatusFlags.PartnerDiscovered);
         _multiPlayerConnection.Connect(localIPAddress, remoteEndPoint.Address);
         return true;
     }
 
-    private bool GodNetworking_DatagramReceived(object sender, IPEndPoint remoteEndPoint, byte[] buffer, int offset, int count)
+    private bool MultiPlayerConnection_DatagramReceived(object sender, IPEndPoint remoteEndPoint, byte[] buffer, int offset, int count)
     {
         if (GodDatagram.TryDeserialize(buffer, offset, count, out var datagram))
         {
@@ -419,19 +425,12 @@ public class MultiPlayerManager : MonoBehaviour
 
     private void MultiPlayerConnection_StatusChanged(object sender, ConnectionStatusChangedEventArgs e)
     {
-        ChangeStatusFlag(GameStatusFlags.PartnerReady, e.NewValue == ConnectionStatus.Online);
+        ChangeStatusFlag(GameStatusFlags.PartnerConnected, e.NewValue == ConnectionStatus.Online);
     }
-
-    private void TelloClient_StatusChanged(object sender, ConnectionStatusChangedEventArgs e)
-    {
-        ChangeStatusFlag(GameStatusFlags.DroneReady, e.NewValue == ConnectionStatus.Online);
-    }
-
     private void DroneTelemetry_StatusChanged(object sender, ConnectionStatusChangedEventArgs e)
     {
         ChangeStatusFlag(GameStatusFlags.DroneReady, e.NewValue == ConnectionStatus.Online);
     }
-
     private void DroneControl_StatusChanged(object sender, ConnectionStatusChangedEventArgs e)
     {
         

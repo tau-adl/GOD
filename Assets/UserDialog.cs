@@ -83,8 +83,8 @@ public class UserDialog : MonoBehaviour
     [UsedImplicitly]
     private void Awake()
     {
-        _headerText = dialogHeader.GetComponent<TMP_Text>();
-        _bodyText = dialogBody.GetComponent<TMP_Text>();
+        _headerText = dialogHeader.GetComponentInChildren<TMP_Text>();
+        _bodyText = dialogBody.GetComponentInChildren<TMP_Text>();
     }
 
     #endregion MonoBehaviour

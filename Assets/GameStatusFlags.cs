@@ -8,12 +8,13 @@ public enum GameStatusFlags
     ValueChanged = 1,
     VuforiaReady = 2,
     DroneReady = 4,
-    PartnerReady = 8,
+    PartnerDiscovered = 8,
     PartnerConnected = 0x10,
-    UserReady = 0x20,
-    DroneAirborne = 0x40,
+    PartnerReady = 0x20,
+    UserReady = 0x40,
+    DroneAirborne = 0x80,
 
-    AllClear = UserReady | VuforiaReady | DroneReady | PartnerReady
+    AllClear = UserReady | VuforiaReady | DroneReady
 }
 
 public static class GameStatusFlagsExtensions
