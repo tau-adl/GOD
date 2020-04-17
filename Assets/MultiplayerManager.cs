@@ -188,7 +188,7 @@ public class MultiPlayerManager : MonoBehaviour
         {
             if (myFlags.HasFlag(GameStatusFlags.UserReady))
             {
-                if (myFlags.HasFlag(GameStatusFlags.AllClear) && myFlags.HasFlag(GameStatusFlags.AllClear))
+                if (myFlags.HasFlag(GameStatusFlags.AllClear) && partnerReady)
                 {
                     _userDialog.IsVisible = false;
                     StartGame();
@@ -200,20 +200,22 @@ public class MultiPlayerManager : MonoBehaviour
                     _userDialog.ShowCancelButton = true;
                     var builder = new StringBuilder();
                     if (!myFlags.HasFlag(GameStatusFlags.VuforiaReady))
-                        builder.Append("- Mission pad was not detected...\n" +
-                                       "  Please make sure it can be seen by the camera.");
+                        builder.AppendLine("- Mission pad was not detected...\n" +
+                                           "  Please make sure it can be seen by the camera.");
                     if (!myFlags.HasFlag(GameStatusFlags.DroneReady))
-                        builder.Append("- Waiting for the drone to become ready...");
+                        builder.AppendLine("- Waiting for the drone to become ready...");
                     if (!myFlags.HasFlag(GameStatusFlags.PartnerConnected))
-                        builder.Append("- Waiting for a partner to connect...");
+                        builder.AppendLine("- Waiting for the other player to connect...");
                     else if (!myFlags.HasFlag(GameStatusFlags.PartnerReady))
-                        builder.Append("- Waiting for the other player the become ready...");
+                        builder.AppendLine("- Waiting for the other player to become ready...");
                     _userDialog.BodyText = builder.ToString();
                     _userDialog.IsVisible = true;
                 }
             }
             else
             {
+                if (_gameStarted && !partnerFlags.HasFlag(GameStatusFlags.UserReady))
+                    StopGame();
                 _userDialog.IsVisible = false;
                 readyButton.SetActive(true);
             }
@@ -288,6 +290,7 @@ public class MultiPlayerManager : MonoBehaviour
     public void SetUserReady()
     {
         SetStatusFlag(GameStatusFlags.UserReady);
+        readyButton.SetActive(false);
     }
 
     [UsedImplicitly]

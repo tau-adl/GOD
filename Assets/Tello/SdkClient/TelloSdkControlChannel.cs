@@ -75,7 +75,7 @@ class TelloSdkControlChannel
         : base("Drone Control Channel")
     {
         ReceiveTimeoutMS = DefaultCommandTimeoutMS;
-        _stickDataTimer.Interval = DefaultStickDataIntervalMS;
+        StickDataIntervalMS = DefaultStickDataIntervalMS;
         _stickDataTimer.Elapsed += StickDataTimer_Elapsed;
         _stickDataTimer.AutoReset = false;
     }
@@ -105,6 +105,11 @@ class TelloSdkControlChannel
         return new Socket(addressFamily, SocketType.Dgram, ProtocolType.Udp);
     }
 
+    protected override void OnStatusChanged(ConnectionStatusChangedEventArgs e)
+    {
+        _stickDataTimer.Enabled = e.NewValue == ConnectionStatus.Online;
+    }
+
     protected override void ConnectionLoop(Socket socket)
     {
         var txBuffer = new byte[MaxCommandLength];
@@ -120,14 +125,10 @@ class TelloSdkControlChannel
                     : WaitHandle.WaitTimeout;
             if (signal == WaitHandle.WaitTimeout)
             {
-                _stickDataTimer.Stop();
                 if (!PerformInitializationSequence(socket, txBuffer, rxBuffer))
                     return; // failed to initialize.
                 if (Status == ConnectionStatus.Online)
-                {
                     lastSuccessfulCommand = DateTime.Now;
-                    _stickDataTimer.Start();
-                }
                 continue;
             }
             if (signal != 0)

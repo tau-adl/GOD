@@ -49,21 +49,13 @@ public class UserDialog : MonoBehaviour
     public bool ShowOkButton
     {
         get => okButton.activeSelf;
-        set
-        {
-            okButton.SetActive(value);
-            UpdateButtonPositions();
-        }
+        set => okButton.SetActive(value);
     }
 
     public bool ShowCancelButton
     {
         get => cancelButton.activeSelf;
-        set
-        {
-            cancelButton.SetActive(value);
-            UpdateButtonPositions();
-        }
+        set => cancelButton.SetActive(value);
     }
 
     public bool IsVisible
@@ -90,16 +82,6 @@ public class UserDialog : MonoBehaviour
     #endregion MonoBehaviour
 
     #region Methods
-
-    private void UpdateButtonPositions()
-    {
-        var cancelButtonX = ShowOkButton
-            ? okButton.transform.position.x - okButton.GetComponent<RectTransform>().rect.width -
-              30 /* button margins */
-            : okButton.transform.position.x;
-        cancelButton.transform.position.Set(
-            cancelButtonX, cancelButton.transform.position.y, cancelButton.transform.position.z);
-    }
 
     [UsedImplicitly]
     public void OnOkButtonClicked()
