@@ -1,49 +1,46 @@
-﻿using System;
-
-/// <summary>
+﻿/// <summary>
 /// Represents drone telemetry using the SDK API.
 /// </summary>
 public class TelloSdkTelemetry
 {
-    private short pitchDegrees;
-    private short rollDegrees;
-    private short yawDegrees;
-    private int height;
-    private int missionPadId;
-    private TelloSdkCoordinates missionPadCoordinates;
-    private short measuredTemperatureHigh;
-    private short measuredTemperatureLow;
-    private byte batteryPercent;
-    private uint timeOfFlight;
-    private uint motorTime;
-    private float barometer;
+    private short _pitchDegrees;
+    private short _rollDegrees;
+    private short _yawDegrees;
+    private int _height;
+    private int _missionPadId;
+    private short _measuredTemperatureHigh;
+    private short _measuredTemperatureLow;
+    private byte _batteryPercent;
+    private uint _timeOfFlight;
+    private uint _motorTime;
+    private float _barometer;
 
     /// <summary>
     /// Gets drone pitch degrees.
     /// </summary>
-    public short PitchDegrees { get => pitchDegrees; private set => pitchDegrees = value; }
+    public short PitchDegrees => _pitchDegrees;
     /// <summary>
     /// Gets drone roll degrees.
     /// </summary>
-    public short RollDegrees { get => rollDegrees; private set => rollDegrees = value; }
+    public short RollDegrees => _rollDegrees;
     /// <summary>
     /// Gets drone yaw degrees.
     /// </summary>
-    public short YawDegrees { get => yawDegrees; private set => yawDegrees = value; }
+    public short YawDegrees => _yawDegrees;
     /// <summary>
     /// Gets the drone height above ground in centimeters.
     /// </summary>
-    public int Height { get => height; private set => height = value; }
+    public int Height => _height;
 
     /// <summary>
     /// Gets the identifier of the detected mission pad.
     /// The value -1 indicates no mission pad has been detected.
     /// </summary>
-    public int MissionPadId { get => missionPadId; private set => missionPadId = value; }
+    public int MissionPadId => _missionPadId;
     /// <summary>
     /// Gets the coordinates on the detected mission pad.
     /// </summary>
-    public TelloSdkCoordinates MissionPadCoordinates { get => missionPadCoordinates; private set => missionPadCoordinates = value; }
+    public TelloSdkCoordinates MissionPadCoordinates { get; private set; }
     /// <summary>
     /// Gets the 3D velocity vector.
     /// </summary>
@@ -52,30 +49,30 @@ public class TelloSdkTelemetry
     /// <summary>
     /// Gets the measured temperature high value (Celsius).
     /// </summary>
-    public short MeasuredTemperatureHigh { get => measuredTemperatureHigh; private set => measuredTemperatureHigh = value; }
+    public short MeasuredTemperatureHigh => _measuredTemperatureHigh;
     /// <summary>
     /// Gets the measured temperature low value (Celsius).
     /// </summary>
-    public short MeasuredTemperatureLow { get => measuredTemperatureLow; private set => measuredTemperatureLow = value; }
+    public short MeasuredTemperatureLow => _measuredTemperatureLow;
 
     /// <summary>
     /// Gets the time-of-flight distance in centimeters.
     /// </summary>
-    public uint TimeOfFlight { get => timeOfFlight; private set => timeOfFlight = value; }
+    public uint TimeOfFlight => _timeOfFlight;
 
     /// <summary>
     /// Gets drone remaining battery percent.
     /// </summary>
-    public byte BatteryPercent { get => batteryPercent; private set => batteryPercent = value; }
+    public byte BatteryPercent => _batteryPercent;
 
     /// <summary>
     /// Gets barometer reading in centimeters.
     /// </summary>
-    public float Barometer { get => barometer; private set => barometer = value; }
+    public float Barometer => _barometer;
     /// <summary>
     /// Gets the amount of time the motors have been used.
     /// </summary>
-    public uint MotorTime { get => motorTime; private set => motorTime = value; }
+    public uint MotorTime => _motorTime;
 
     /// <summary>
     /// Gets acceleration vector.
@@ -105,7 +102,7 @@ public class TelloSdkTelemetry
             switch (key)
             {
                 case "mid":
-                    ok &= int.TryParse(value, out result.missionPadId);
+                    ok &= int.TryParse(value, out result._missionPadId);
                     break;
                 case "x":
                     ok &= float.TryParse(value, out mpx);
@@ -117,13 +114,13 @@ public class TelloSdkTelemetry
                     ok &= float.TryParse(value, out mpz);
                     break;
                 case "pitch":
-                    ok &= short.TryParse(value, out result.pitchDegrees);
+                    ok &= short.TryParse(value, out result._pitchDegrees);
                     break;
                 case "roll":
-                    ok &= short.TryParse(value, out result.rollDegrees);
+                    ok &= short.TryParse(value, out result._rollDegrees);
                     break;
                 case "yaw":
-                    ok &= short.TryParse(value, out result.yawDegrees);
+                    ok &= short.TryParse(value, out result._yawDegrees);
                     break;
                 case "vgx":
                     ok &= float.TryParse(value, out vgx);
@@ -135,25 +132,25 @@ public class TelloSdkTelemetry
                     ok &= float.TryParse(value, out vgz);
                     break;
                 case "templ":
-                    ok &= short.TryParse(value, out result.measuredTemperatureLow);
+                    ok &= short.TryParse(value, out result._measuredTemperatureLow);
                     break;
                 case "temph":
-                    ok &= short.TryParse(value, out result.measuredTemperatureHigh);
+                    ok &= short.TryParse(value, out result._measuredTemperatureHigh);
                     break;
                 case "tof":
-                    ok &= uint.TryParse(value, out result.timeOfFlight);
+                    ok &= uint.TryParse(value, out result._timeOfFlight);
                     break;
                 case "h":
-                    ok &= int.TryParse(value, out result.height);
+                    ok &= int.TryParse(value, out result._height);
                     break;
                 case "bat":
-                    ok &= byte.TryParse(value, out result.batteryPercent);
+                    ok &= byte.TryParse(value, out result._batteryPercent);
                     break;
                 case "baro":
-                    ok &= float.TryParse(value, out result.barometer);
+                    ok &= float.TryParse(value, out result._barometer);
                     break;
                 case "time":
-                    ok &= uint.TryParse(value, out result.motorTime);
+                    ok &= uint.TryParse(value, out result._motorTime);
                     break;
                 case "agx":
                     ok &= float.TryParse(value, out agx);

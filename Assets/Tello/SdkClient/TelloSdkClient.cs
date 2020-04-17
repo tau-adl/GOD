@@ -20,7 +20,8 @@ public enum TelloSdkClientFlags
     All = Control | Telemetry | Video
 }
 
-public class TelloSdkClient : IDisposable
+public class TelloSdkClient 
+    : IDisposable
 {
     #region Defaults
 
@@ -45,8 +46,15 @@ public class TelloSdkClient : IDisposable
     private TelloSdkTelemetry[] _telemetryHistory = new TelloSdkTelemetry[1 + TelemetryHistorySize];
     private TelloSdkStickData _stickData = new TelloSdkStickData();
     private bool _enableMissionMode;
+    private ConnectionStatus _status;
 
     #endregion Private Fields
+
+    #region Events
+
+    public event EventHandler<ConnectionStatusChangedEventArgs> StatusChanged;
+
+    #endregion Events
 
     #region Public Properties
 
@@ -56,15 +64,12 @@ public class TelloSdkClient : IDisposable
         set => _stickData = value ?? throw new ArgumentNullException(nameof(value));
     }
 
-    public byte? BatteryPercent
-    {
-        get { return Telemetry?.BatteryPercent; }
-    }
+    public byte? BatteryPercent => Telemetry?.BatteryPercent;
 
-    public TelloSdkClientFlags ClientFlags { get => _clientFlags; }
+    public TelloSdkClientFlags ClientFlags => _clientFlags;
 
-    public TelloSdkTelemetry[] TelemetryHistory { get => _telemetryHistory; }
-    public TelloSdkTelemetry Telemetry { get => _telemetryHistory[0]; }
+    public TelloSdkTelemetry[] TelemetryHistory => _telemetryHistory;
+    public TelloSdkTelemetry Telemetry => _telemetryHistory[0];
 
     public string HostName { get; private set; }
 
@@ -75,6 +80,20 @@ public class TelloSdkClient : IDisposable
     public bool IsDisposed { get; private set; }
 
     public bool IsStarted { get; private set; }
+
+    public ConnectionStatus Status
+    {
+        get => _status;
+        private set
+        {
+            if (_status != value)
+            {
+                var e = new ConnectionStatusChangedEventArgs(_status, value);
+                _status = value;
+                OnStatusChanged(e);
+            }
+        }
+    }
 
     public double StickDataIntervalMilliseconds { get; set; } = DefaultStickDataIntervalMilliseconds;
 
@@ -165,7 +184,7 @@ public class TelloSdkClient : IDisposable
 
     #endregion Construction & Destruction
 
-    #region Closed API
+    #region SDK 2.0
 
     private async Task<UdpReceiveResult> SendCommandAsync(string command, int responseTimeoutMS, int retries)
     {
@@ -184,13 +203,68 @@ public class TelloSdkClient : IDisposable
         return new UdpReceiveResult();
     }
 
-    private async Task<string> ReceiveCommandResultAsync()
+    private void TelloClientWork()
     {
-        var result = await _commandChannel.ReceiveAsync();
-        return Encoding.ASCII.GetString(result.Buffer);
+        Debug.Log($"{GetType().Name}: Tello client thread started.");
+        while (true)
+        {
+            var history = new TelloSdkTelemetry[1 + TelemetryHistorySize];
+            for (var i = 1; i < TelemetryHistorySize; ++i)
+                history[i] = _telemetryHistory[i - 1];
+            try
+            {
+                // receive a telemetry datagram from the drone:
+                var recvTask = _telemetryChannel.ReceiveAsync();
+                if (!recvTask.Wait(1000, _cts.Token))
+                {
+                    // timeout - try to tell the drone to enter SDK mode:
+                    Debug.LogWarning($"{GetType().Name}: Timeout while waiting for a telemetry datagram.");
+                    _ = SendCommandAsync("command", 0, 0);
+                    continue;
+                }
+                // parse telemetry datagram:
+                var text = Encoding.ASCII.GetString(recvTask.Result.Buffer);
+                bool ok = TelloSdkTelemetry.TryParse(text, out var telemetry);
+                if (ok)
+                {
+                    history[0] = telemetry;
+                }
+                else
+                {
+                    Debug.LogError("Failed to parse Tello telemetry.");
+                }
+            }
+            catch (AggregateException)
+            {
+                break; // operation was cancelled.
+            }
+            catch (ObjectDisposedException)
+            {
+                break;
+            }
+            catch (ThreadAbortException)
+            {
+                break;
+            }
+            catch (OperationCanceledException)
+            {
+                break;
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError(ex);
+            }
+            finally
+            {
+                _telemetryHistory = history;
+            }
+        }
+        _telemetryHistory[0] = null;
+        Debug.Log($"{GetType().Name}: Telemetry thread exiting.");
     }
 
-    private uint _lastMotorTimeValue;
+
+
     private void TelemetryChannelLoop()
     {
         Debug.Log($"{GetType().Name}: Telemetry thread started.");
@@ -215,7 +289,6 @@ public class TelloSdkClient : IDisposable
                 if (ok)
                 {
                     history[0] = telemetry;
-                    _lastMotorTimeValue = telemetry.MotorTime;
                 }
                 else
                 {
@@ -265,7 +338,6 @@ public class TelloSdkClient : IDisposable
             {
                 var missionMode = _enableMissionMode ? "mon" : "moff";
                 tasks.Add(SendCommandAsync(missionMode, 0, 0));
-                tasks.Add(SendCommandAsync("mdirection 2", 0, 0));
             }
             await Task.WhenAny(tasks);
             _cts.Token.ThrowIfCancellationRequested();
@@ -292,6 +364,11 @@ public class TelloSdkClient : IDisposable
     #endregion Closed API
 
     #region Event Handlers
+
+    private void OnStatusChanged(ConnectionStatusChangedEventArgs e)
+    {
+        StatusChanged?.Invoke(this, e);
+    }
 
     private void StickDataTimer_Elapsed(object sender, System.Timers.ElapsedEventArgs e)
     {

@@ -4,58 +4,60 @@ using UnityEngine.UI;
 
 public class BatteryPanelManager : MonoBehaviour
 {
-    private Sprite batteryNA;
-    private Sprite battery100;
-    private Sprite battery75;
-    private Sprite battery50;
-    private Sprite battery25;
-    private Sprite batteryLow;
+    private Sprite _batteryUnknown;
+    private Sprite _battery100;
+    private Sprite _battery75;
+    private Sprite _battery50;
+    private Sprite _battery25;
+    private Sprite _batteryLow;
 
     public TelloSdkClient telloClient;
 
-    private int _frameNumber;
+    private DroneTelemetry _droneTelemetry;
 
-    private RawImage batteryIcon;
-    private TMP_Text batteryText;
+    private RawImage _batteryIcon;
+    private TMP_Text _batteryText;
 
-    // Start is called before the first frame update
-    void Start()
+    private void Awake()
     {
-        batteryNA = Resources.Load<Sprite>("Battery/battery_na");
-        battery100 = Resources.Load<Sprite>("Battery/battery_100");
-        battery75 = Resources.Load<Sprite>("Battery/battery_75");
-        battery50 = Resources.Load<Sprite>("Battery/battery_50");
-        battery25 = Resources.Load<Sprite>("Battery/battery_25");
-        batteryLow = Resources.Load<Sprite>("Battery/battery_low");
+        _batteryUnknown = Resources.Load<Sprite>("Battery/battery_na");
+        _battery100 = Resources.Load<Sprite>("Battery/battery_100");
+        _battery75 = Resources.Load<Sprite>("Battery/battery_75");
+        _battery50 = Resources.Load<Sprite>("Battery/battery_50");
+        _battery25 = Resources.Load<Sprite>("Battery/battery_25");
+        _batteryLow = Resources.Load<Sprite>("Battery/battery_low");
 
-        batteryIcon = GetComponentInChildren<RawImage>();
-        batteryText = GetComponentInChildren<TMP_Text>();
+        _batteryIcon = GetComponentInChildren<RawImage>();
+        _batteryText = GetComponentInChildren<TMP_Text>();
+
+        _droneTelemetry = FindObjectOfType<DroneTelemetry>();
+        if (_droneTelemetry != null)
+            InvokeRepeating("UpdateBatteryStatus", 0, 1);
     }
 
-    // Update is called once per frame
-    void Update()
+    private void UpdateBatteryStatus()
     {
-        if (++_frameNumber % 30 == 0) {
-            var telemetry = telloClient?.Telemetry;
-            if (telemetry != null)
-            {
-                batteryText.text = $"{telemetry.BatteryPercent}%";
-                if (telemetry.BatteryPercent > 87)
-                    batteryIcon.texture = battery100.texture;
-                else if (telemetry.BatteryPercent > 62)
-                    batteryIcon.texture = battery75.texture;
-                else if (telemetry.BatteryPercent > 37)
-                    batteryIcon.texture = battery50.texture;
-                else if (telemetry.BatteryPercent >= 25)
-                    batteryIcon.texture = battery25.texture;
-                else
-                    batteryIcon.texture = batteryLow.texture;
-            }
+        var telemetry = _droneTelemetry.Status == ConnectionStatus.Online
+            ? _droneTelemetry.Telemetry
+            : null;
+        if (telemetry != null)
+        {
+            _batteryText.text = $"{telemetry.BatteryPercent}%";
+            if (telemetry.BatteryPercent > 87)
+                _batteryIcon.texture = _battery100.texture;
+            else if (telemetry.BatteryPercent > 62)
+                _batteryIcon.texture = _battery75.texture;
+            else if (telemetry.BatteryPercent > 37)
+                _batteryIcon.texture = _battery50.texture;
+            else if (telemetry.BatteryPercent >= 25)
+                _batteryIcon.texture = _battery25.texture;
             else
-            {
-                batteryText.text = "N/A";
-                batteryIcon.texture = batteryNA.texture;
-            }
-       }
+                _batteryIcon.texture = _batteryLow.texture;
+        }
+        else
+        {
+            _batteryText.text = "N/A";
+            _batteryIcon.texture = _batteryUnknown.texture;
+        }
     }
 }

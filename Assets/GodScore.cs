@@ -2,6 +2,8 @@
 
 public sealed class GodScore
 {
+    private const char ValueSeparator = GodMessages.KeyValueSeparator;
+
     public uint MyScore { get; set; }
     public uint TheirScore { get; set; }
 
@@ -17,14 +19,14 @@ public sealed class GodScore
 
     public override string ToString()
     {
-        return $"{MyScore}:{TheirScore}";
+        return $"{MyScore}{ValueSeparator}{TheirScore}";
     }
 
     public static bool TryParse(string text, out GodScore value)
     {
         if (text != null)
         {
-            var colonIndex = text.IndexOf(':');
+            var colonIndex = text.IndexOf(ValueSeparator);
             if (colonIndex > 0)
             {
                 var myScoreText = text.Substring(0, colonIndex);

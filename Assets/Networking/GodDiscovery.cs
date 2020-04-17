@@ -1,7 +1,6 @@
 ﻿using System;
 using System.Linq;
 using System.Text;
-using System.Collections.Generic;
 using System.Net;
 using System.Net.Sockets;
 using System.Threading;
@@ -14,17 +13,17 @@ public class GodDiscovery : MonoBehaviour
 
     private sealed class UdpReceiverState
     {
-        public Socket Socket;
-        public GodDiscovery Discovery;
-        public EndPoint RemoteEndPoint;
-        public byte[] Buffer;
+        public Socket Socket { get; }
+        public GodDiscovery Discovery { get; }
+        public EndPoint remoteEndPoint;
+        public byte[] Buffer { get; }
 
         public UdpReceiverState(GodDiscovery discovery, Socket socket)
         {
             Socket = socket;
             Discovery = discovery;
             Buffer = new byte[MaxUdpPayloadSize];
-            RemoteEndPoint = new IPEndPoint(IPAddress.Any, 0);
+            remoteEndPoint = new IPEndPoint(IPAddress.Any, 0);
         }
     }
 
@@ -52,7 +51,7 @@ public class GodDiscovery : MonoBehaviour
     /// <summary>
     /// The maximum allowed UDP payload size.
     /// </summary>
-    public const int MaxUdpPayloadSize = GodNetworking.MaxUdpPayloadSize;
+    public const int MaxUdpPayloadSize = NetworkConnectionBase.MaxSafeUdpPayloadSize;
     /// <summary>
     /// The default discovery UDP port.
     /// </summary>
@@ -234,8 +233,8 @@ public class GodDiscovery : MonoBehaviour
         {
             var socket = state.Socket;
             // end the current receive operation:
-            var count = socket.EndReceiveFrom(asyncResult, ref state.RemoteEndPoint);
-            var remoteEndPoint = (IPEndPoint)state.RemoteEndPoint;
+            var count = socket.EndReceiveFrom(asyncResult, ref state.remoteEndPoint);
+            var remoteEndPoint = (IPEndPoint)state.remoteEndPoint;
             var buffer = state.Buffer;
             var partner = PartnerEndPoint;
             var keepConnection = true;
@@ -283,9 +282,9 @@ public class GodDiscovery : MonoBehaviour
                     }
                 }
                 // initiate another receive operation:
-                state.RemoteEndPoint = new IPEndPoint(IPAddress.Any, 0);
+                state.remoteEndPoint = new IPEndPoint(IPAddress.Any, 0);
                 socket.BeginReceiveFrom(buffer, 0, buffer.Length,
-                    SocketFlags.None, ref state.RemoteEndPoint, IPv4Discovery_EndReceiveFrom, state);
+                    SocketFlags.None, ref state.remoteEndPoint, IPv4Discovery_EndReceiveFrom, state);
             }
         }
         catch (InvalidOperationException)
@@ -326,7 +325,7 @@ public class GodDiscovery : MonoBehaviour
             var cancellationToken = _cts.Token;
             var recvState = new UdpReceiverState(this, _discoveryIPv4);
             _discoveryIPv4.BeginReceiveFrom(recvState.Buffer, 0, recvState.Buffer.Length,
-                SocketFlags.None, ref recvState.RemoteEndPoint, IPv4Discovery_EndReceiveFrom, recvState);
+                SocketFlags.None, ref recvState.remoteEndPoint, IPv4Discovery_EndReceiveFrom, recvState);
             var sendState = new UdpSenderState(this, _discoveryIPv4);
             while (true)
             {
@@ -358,7 +357,7 @@ public class GodDiscovery : MonoBehaviour
                                 var broadcastAddress = NetUtils.GetBroadcastAddress(addr.Address, addr.IPv4Mask);
                                 var broadcastEndPoint = new IPEndPoint(broadcastAddress, DiscoveryPort);
                                 // send broadcast:
-                                Debug.Log($"Sending discovery packet to {broadcastEndPoint}");
+                                //Debug.Log($"Sending discovery packet to {broadcastEndPoint}");
                                 _discoveryIPv4.BeginSendTo(_broadcastMessage, 0, _broadcastMessage.Length,
                                     SocketFlags.None, broadcastEndPoint, IPv4Discovery_EndSendTo, sendState);
                                 break;
