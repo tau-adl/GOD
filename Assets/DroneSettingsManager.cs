@@ -1,12 +1,24 @@
 ﻿using System;
+using JetBrains.Annotations;
 using TMPro;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
 public class DroneSettingsManager : MonoBehaviour
 {
-    private const int DroneWifiModeAccessPoint = 0;
-    private const int DroneWifiModeStation = 1;
+    private static class SettingKeys
+    {
+        public const string DroneHostName = "DroneHostName";
+        public const string WifiSsid = "WifiSSID";
+        public const string WifiPassword = "WifiPassword";
+        public const string DroneWifiMode = "DroneWifiMode";
+    }
+
+    private static class WifiMode
+    {
+        public const string AccessPoint = "Access-Point";
+        public const string Station = "Station";
+    }
 
     public GameObject droneIPAddressGameObject;
     public GameObject wifiSsidGameObject;
@@ -18,71 +30,82 @@ public class DroneSettingsManager : MonoBehaviour
     private TMP_InputField wifiPasswordText;
     private TMP_Dropdown wifiModeDropdown;
 
-    // Start is called before the first frame update
-    void Start()
+    private void SetWifiMode([NotNull] string wifiMode)
+    {
+        for (var i = 0; i < wifiModeDropdown.options.Count; ++i)
+        {
+            var option = wifiModeDropdown.options[i];
+            if (wifiMode.Equals(option.text, StringComparison.Ordinal))
+            {
+                wifiModeDropdown.value = i;
+                break;
+            }
+        }
+    }
+
+    private string GetWifiMode()
+    {
+        var index = wifiModeDropdown.value;
+        return wifiModeDropdown.options[index].text;
+    }
+
+    [UsedImplicitly]
+    private void Awake()
     {
         droneIPAddressText = droneIPAddressGameObject.GetComponentInChildren<UnityEngine.UI.InputField>();
         wifiSsidText = wifiSsidGameObject.GetComponentInChildren<UnityEngine.UI.InputField>();
         wifiPasswordText = wifiPasswordGameObject.GetComponentInChildren<TMP_InputField>();
         wifiModeDropdown = wifiModeGameObject.GetComponentInChildren<TMP_Dropdown>();
-        droneIPAddressText.text = PlayerPrefs.GetString("DroneHostName", TelloSdkClient.DefaultHostName);
-        wifiSsidText.text = PlayerPrefs.GetString("WifiSSID", "");
-        wifiPasswordText.text = PlayerPrefs.GetString("WifiPassword", "");
-        wifiModeDropdown.value = PlayerPrefs.GetInt("DroneWifiMode", 0);
     }
 
+    [UsedImplicitly]
+    private void Start()
+    {
+        droneIPAddressText.text = PlayerPrefs.GetString(SettingKeys.DroneHostName, TelloSdkClient.DefaultHostName);
+        wifiSsidText.text = PlayerPrefs.GetString(SettingKeys.WifiSsid, "");
+        wifiPasswordText.text = PlayerPrefs.GetString(SettingKeys.WifiPassword, "");
+        var wifiMode = PlayerPrefs.GetString(SettingKeys.DroneWifiMode, WifiMode.AccessPoint);
+        SetWifiMode(wifiMode);
+    }
+
+    [UsedImplicitly]
     public async void SetDroneWifiSettings()
     {
         try
         {
-            PlayerPrefs.SetString("DroneHostName", droneIPAddressText.text);
+            PlayerPrefs.SetString(SettingKeys.DroneHostName, droneIPAddressText.text);
+            var currentWifiSsid = PlayerPrefs.GetString(SettingKeys.WifiSsid, ""); 
+            var desiredWifiSsid = wifiSsidText.text;
+            var currentWifiPassword = PlayerPrefs.GetString(SettingKeys.WifiPassword, "");
+            var desiredWifiPassword = wifiPasswordText.text; 
+            var currentWifiMode = PlayerPrefs.GetString(SettingKeys.DroneWifiMode, WifiMode.AccessPoint);
+            var desiredWifiMode = GetWifiMode();
+
             var changed =
-                wifiSsidText.text != PlayerPrefs.GetString("WifiSSID", "") ||
-                wifiPasswordText.text != PlayerPrefs.GetString("WifiPassword", "") ||
-                wifiModeDropdown.value != PlayerPrefs.GetInt("DroneWifiMode", 0);
+                !currentWifiSsid.Equals(desiredWifiSsid, StringComparison.OrdinalIgnoreCase) ||
+                !currentWifiPassword.Equals(desiredWifiPassword, StringComparison.Ordinal) ||
+                !currentWifiMode.Equals(desiredWifiMode, StringComparison.Ordinal);
 
             if (!changed)
-            {
-                ExitDroneSettings();
                 return;
-            }
-
-            PlayerPrefs.SetString("WifiSSID", wifiSsidText.text);
-            PlayerPrefs.SetString("WifiPassword", wifiPasswordText.text);
-            PlayerPrefs.GetInt("DroneWifiMode", wifiModeDropdown.value);
+            PlayerPrefs.SetString(SettingKeys.WifiSsid, desiredWifiSsid);
+            PlayerPrefs.SetString(SettingKeys.WifiPassword, desiredWifiPassword);
+            PlayerPrefs.SetString(SettingKeys.DroneWifiMode, desiredWifiMode);
 
             using (var client = new TelloSdkClient(droneIPAddressText.text, TelloSdkClientFlags.Control))
             {
                 await client.StartAsync();
-                switch (wifiModeDropdown.value)
+                switch (desiredWifiMode)
                 {
-                    case DroneWifiModeAccessPoint:
-                        if (!await client.EnableWifiAccessPointMode(wifiSsidText.text, wifiPasswordText.text))
-                        {
-                            return; // disable drone-related errors.
-                            //EditorUtility.DisplayDialog(
-                            //    "Operation Failed", "Failed to set drone mode to WiFi Access-Point.",
-                            //    "ok");
-                        }
+                    case WifiMode.AccessPoint:
+                        _ = client.EnableWifiAccessPointMode(wifiSsidText.text, wifiPasswordText.text);
                         break;
-                    case DroneWifiModeStation:
-                        if (!await client.EnableWifiStationMode(wifiSsidText.text, wifiPasswordText.text))
-                        {
-                            return; // disable drone-related errors.
-                            //EditorUtility.DisplayDialog(
-                            //    "Operation Failed", "Failed to set drone mode to WiFi-Station.",
-                            //    "ok");
-                        }
-                        break;
-                    default:
-                        //EditorUtility.DisplayDialog(
-                        //        "Operation Failed", "Unsupported drone WiFi mode.",
-                        //        "ok");
+                    case WifiMode.Station:
+                        _ = client.EnableWifiStationMode(wifiSsidText.text, wifiPasswordText.text);
                         break;
 
                 }
                 client.Close();
-                ExitDroneSettings();
             }
         }
         catch (Exception ex)
@@ -91,8 +114,23 @@ public class DroneSettingsManager : MonoBehaviour
         }
     }
 
-    public void ExitDroneSettings()
+    [UsedImplicitly]
+    public void ShowMainMenu()
     {
-        SceneManager.LoadScene("SettingsMenu");
+        SceneManager.LoadScene("MainMenu");
+    }
+
+
+    [UsedImplicitly]
+    public void OnOkButtonClicked()
+    {
+        SetDroneWifiSettings();
+        ShowMainMenu();
+    }
+
+    [UsedImplicitly]
+    public void OnCancelButtonClicked()
+    {
+        ShowMainMenu();
     }
 }

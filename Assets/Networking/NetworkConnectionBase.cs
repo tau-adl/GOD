@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Threading;
+using System.Threading.Tasks;
 using UnityEngine;
 
 public abstract class NetworkConnectionBase
@@ -17,12 +18,12 @@ public abstract class NetworkConnectionBase
 
     #region Fields
 
-    private readonly ManualResetEvent _disconnectWaitHandle = new ManualResetEvent(false);
     private Socket _socket;
     private Thread _communicationThread;
     private int _receiveTimeoutMS;
     private ConnectionStatus _status;
     private IPEndPoint _localEndPoint;
+    private CancellationTokenSource _cts;
 
     #endregion Fields
 
@@ -38,9 +39,7 @@ public abstract class NetworkConnectionBase
     public IPEndPoint LocalEndPoint { get; private set; }
     public EndPoint RemoteEndPoint { get; private set; }
     public IPEndPoint RemoteIPEndPoint { get; private set; }
-
-    protected WaitHandle DisconnectWaitHandle => _disconnectWaitHandle;
-
+    
     /// <summary>
     /// Gets or sets a value indicating whether the local IP address
     /// must be in the same subnet as the remote IP address.
@@ -115,16 +114,27 @@ public abstract class NetworkConnectionBase
     {
         if (!IsDisposed)
         {
-            if (_disconnectWaitHandle != null)
+            if (Status > ConnectionStatus.Disconnected)
+                Status = ConnectionStatus.Disconnecting;
+            var cts = _cts;
+            if (cts != null)
             {
+                _cts = null;
                 try
                 {
-                    _disconnectWaitHandle.Set();
-                    _disconnectWaitHandle.Dispose();
+                    cts.Cancel();
                 }
                 catch (ObjectDisposedException)
                 {
                     // suppress exception.
+                }
+                catch (AggregateException)
+                {
+                    // suppress exception.
+                }
+                finally
+                {
+                    cts.Dispose();
                 }
             }
 
@@ -161,9 +171,9 @@ public abstract class NetworkConnectionBase
         }
     }
 
-    private bool Sleep(int intervalMS)
+    protected static bool Sleep(int intervalMS, CancellationToken cancel)
     {
-        return !_disconnectWaitHandle.WaitOne(intervalMS);
+        return !cancel.WaitHandle.WaitOne(intervalMS);
     }
 
     protected abstract Socket CreateSocket(AddressFamily addressFamily);
@@ -174,7 +184,7 @@ public abstract class NetworkConnectionBase
         Debug.Log($"{Name}: Bound to {socket.LocalEndPoint} ({socket.ProtocolType.ToString().ToUpper()})");
     }
 
-    protected virtual void Connect(Socket socket, IPEndPoint remoteEndPoint)
+    protected virtual void Connect(Socket socket, IPEndPoint remoteEndPoint, CancellationToken cancel)
     {
         socket.Connect(remoteEndPoint);
         Debug.Log($"{Name}: Connected to {socket.RemoteEndPoint} ({socket.ProtocolType.ToString().ToUpper()})");
@@ -185,7 +195,7 @@ public abstract class NetworkConnectionBase
         return new byte[MaxSafeUdpPayloadSize];
     }
 
-    protected virtual void ConnectionLoop(Socket socket)
+    protected virtual void ConnectionLoop(Socket socket, CancellationToken cancel)
     {
         var buffer = CreateReceiveBuffer();
         while (true)
@@ -236,11 +246,13 @@ public abstract class NetworkConnectionBase
         }
     }
 
-    private void CommunicationThreadWork()
+    private void CommunicationThreadWork(object state)
     {
         Debug.Log($"{Name}: communication thread started.");
+        var cancel = ((CancellationTokenSource) state).Token;
         while (true)
         {
+            Socket socket = null;
             try
             {
                 var skipSubnetCheck = false;
@@ -258,7 +270,7 @@ public abstract class NetworkConnectionBase
                             Debug.LogError($"Could not resolve host-name \"{dnsEndPoint.Host}\".");
                             Status = ConnectionStatus.CantResolveHostName;
                             // sleep for ReconnectIntervalMS:
-                            if (!Sleep(ReconnectIntervalMS))
+                            if (!Sleep(ReconnectIntervalMS, cancel))
                                 return; // abort - we are disconnecting.
                             continue;
                         }
@@ -301,7 +313,7 @@ public abstract class NetworkConnectionBase
                                        "Make sure Wifi is turned-on and that you are connected to " +
                                        "the correct network.");
                         // sleep for ReconnectIntervalMS:
-                        if (!Sleep(ReconnectIntervalMS))
+                        if (!Sleep(ReconnectIntervalMS, cancel))
                             return; // abort - we are disconnecting.
                         continue; // try again.
                     }
@@ -311,20 +323,25 @@ public abstract class NetworkConnectionBase
 
                 Interlocked.MemoryBarrier();
                 // create a new UDP client and bind it to the local end-point:
-                var socket = CreateSocket(RemoteIPEndPoint.AddressFamily);
+                socket = CreateSocket(RemoteIPEndPoint.AddressFamily);
                 socket.ReceiveTimeout = ReceiveTimeoutMS;
                 Bind(socket, LocalEndPoint);
                 // assign the actual local end-point:
                 LocalEndPoint = (IPEndPoint) socket.LocalEndPoint;
-                // connect to the partner:
-                Connect(socket, RemoteIPEndPoint);
+                // expose the socket to the external world:
                 _socket = socket;
                 Interlocked.MemoryBarrier();
+                // connect to the partner:
+                Connect(socket, RemoteIPEndPoint, cancel);
+                cancel.ThrowIfCancellationRequested();
                 Status = ConnectionStatus.Connected;
                 // begin communication:
-                ConnectionLoop(socket);
-                // close the socket:
-                socket.Close();
+                Interlocked.MemoryBarrier();
+                ConnectionLoop(socket, cancel);
+            }
+            catch (OperationCanceledException)
+            {
+                break; // we are disconnecting.
             }
             catch (SocketException ex)
             {
@@ -347,14 +364,23 @@ public abstract class NetworkConnectionBase
                     Status = ConnectionStatus.UnknownError;
                 }
             }
+            finally
+            {
+                _socket = null;
+                socket?.Close();
+            }
             // check if we are disconnecting:
             if (Status == ConnectionStatus.Disconnecting)
                 break;
             // sleep before trying to recover:
             try
             {
-                if (!Sleep(ReconnectIntervalMS))
+                if (!Sleep(ReconnectIntervalMS, cancel))
                     break; // abort - we are disconnecting.
+            }
+            catch (OperationCanceledException)
+            {
+                break; // we are disconnecting.
             }
             catch
             {
@@ -387,6 +413,8 @@ public abstract class NetworkConnectionBase
 
     public void Disconnect()
     {
+        if (Status > ConnectionStatus.Disconnected)
+            Status = ConnectionStatus.Disconnecting;
         if (_socket != null)
         {
             try
@@ -400,15 +428,25 @@ public abstract class NetworkConnectionBase
             _socket = null;
         }
 
-        if (_disconnectWaitHandle != null)
+        var cts = _cts;
+        if (cts != null)
         {
+            _cts = null;
             try
             {
-                _disconnectWaitHandle.Set();
+                cts.Cancel();
             }
             catch (ObjectDisposedException)
             {
                 // suppress exception.
+            }
+            catch (AggregateException ex)
+            {
+                Debug.LogWarning(ex);
+            }
+            finally
+            {
+                cts.Dispose();
             }
         }
 
@@ -451,7 +489,7 @@ public abstract class NetworkConnectionBase
         try
         {
             Status = ConnectionStatus.Connecting;
-            _disconnectWaitHandle.Reset();
+            _cts = new CancellationTokenSource();
             // setup communication thread:
             var communicationThread = new Thread(CommunicationThreadWork)
             {
@@ -460,7 +498,7 @@ public abstract class NetworkConnectionBase
             };
             _communicationThread = communicationThread;
             Interlocked.MemoryBarrier();
-            communicationThread.Start();
+            communicationThread.Start(_cts);
         }
         catch
         {

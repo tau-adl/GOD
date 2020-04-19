@@ -9,8 +9,8 @@
     Timeout = -1,
 
     Offline = 0,
-    Disconnecting = 1,
-    Disconnected = 2,
+    Disconnected = 1,
+    Disconnecting = 2,
     Connecting = 3,
     Connected = 4,
     Online = 5

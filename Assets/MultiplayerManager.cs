@@ -18,10 +18,11 @@ public class MultiPlayerManager : MonoBehaviour
     public GameObject stopButton;
     public GameObject augmentedDrone;
     public GameObject realDrone;
-    public GameObject droneStickerTarget;
     public GameObject ball;
     public GameObject readyButton;
     public UnityEngine.UI.Text scoreText;
+    public GameObject missionPadTarget;
+    public GameObject droneStickerTarget;
 
     #endregion Public Fields
 
@@ -30,6 +31,7 @@ public class MultiPlayerManager : MonoBehaviour
     private StatusPanelManager _statusPanelManager;
     private Rigidbody _ballRigidbody;
     private Vector3 _initialRealDronePosition;
+    private Vector3 _initialAugmentedDronePosition;
     private Vector3 _initialDroneStickerPosition;
     private Vector3 _initialBallPosition;
     private float _filteredDroneHeight;
@@ -43,6 +45,7 @@ public class MultiPlayerManager : MonoBehaviour
     private float _ballForceX = 50.0F;
     private volatile bool _gameStarted;
     private bool _stickerFound;
+    private bool _demoMode;
 
     private readonly byte[] _godUpdateTxBuffer = new byte[GodUpdateDatagram.MaxSize];
 
@@ -104,6 +107,7 @@ public class MultiPlayerManager : MonoBehaviour
         _discovery = FindObjectOfType<GodDiscovery>();
         _discovery.SetPartnerDiscoveredCallback(GodDiscovery_PartnerDiscovered);
         _initialRealDronePosition = realDrone.transform.localPosition;
+        _initialAugmentedDronePosition = augmentedDrone.transform.localPosition;
         _initialDroneStickerPosition = droneStickerTarget.transform.localPosition;
         _initialBallPosition = ball.transform.localPosition;
         _droneTelemetry = FindObjectOfType<DroneTelemetry>();
@@ -123,6 +127,14 @@ public class MultiPlayerManager : MonoBehaviour
         // set screen orientation to horizontal:
         Screen.orientation = ScreenOrientation.LandscapeLeft;
         _gameStarted = false;
+        // get game settings:
+        var missionPadNumber = PlayerPrefs.GetInt(GameSettingsManager.SettingKeys.MissionPadNumber, 6);
+        var selectedSticker = PlayerPrefs.GetString(GameSettingsManager.SettingKeys.DroneStickerName, "Simple-Blue");
+        _demoMode = PlayerPrefs.GetInt(GameSettingsManager.SettingKeys.DemoMode, 0) != 0;
+
+        var missionPadTargetBehaviour = missionPadTarget.GetComponent<ImageTargetBehaviour>();
+        var droneStickerTargetBehaviour = droneStickerTarget.GetComponent<ImageTargetBehaviour>();
+
         _discovery.StartDiscovery();
         _userDialog.IsVisible = false;
         InvokeRepeating("UpdateGameStatus", 0, 1);
@@ -143,34 +155,6 @@ public class MultiPlayerManager : MonoBehaviour
             SendGodUpdate();
             // process update message:
             ProcessLastGodUpdate();
-            /*
-            var droneStatusChanged = _droneStatusOk != droneStatusOk;
-            var partnerStatusChanged = Interlocked.Exchange(ref _partnerStatusChanged, 0) != 0;
-            if (partnerStatusChanged || droneStatusChanged
-            {
-                if (partnerStatusOk && droneStatusOk)
-                {
-                    _statusText.text = $"Connected to {_remoteIPAddress}";
-                    lock (startButton)
-                    {
-                        startButton.SetActive(!_gameStarted);
-                    }
-                }
-                else
-                {
-                    _statusText.text = partnerStatusOk
-                        ? "Waiting for the drone to connect..."
-                        : "Looking for partners...";
-                    lock (startButton)
-                    {
-                        startButton.SetActive(false);
-                        _ballRigidbody.isKinematic = true;
-                        _gameStarted = false;
-                    }
-                }
-
-                _droneStatusOk = droneStatusOk;
-            }*/
         }
         catch (Exception ex)
         {
@@ -187,11 +171,16 @@ public class MultiPlayerManager : MonoBehaviour
         if (partnerReady ^ myFlags.HasFlag(GameStatusFlags.PartnerReady))
             myFlags = ChangeStatusFlag(GameStatusFlags.PartnerReady, partnerReady);
 
+        var droneTelemetry = _droneTelemetry.Telemetry;
+        var droneAirborne = _droneTelemetry.Telemetry?.Height > 0;
+        if (myFlags.HasFlag(GameStatusFlags.DroneAirborne) ^ droneAirborne)
+            ChangeStatusFlag(GameStatusFlags.DroneAirborne, droneAirborne);
+
         if (!_gameStarted)
         {
             if (myFlags.HasFlag(GameStatusFlags.UserReady))
             {
-                if (myFlags.HasFlag(GameStatusFlags.AllClear) && partnerReady)
+                if (myFlags.HasFlag(GameStatusFlags.AllClear) && (_demoMode || partnerReady))
                 {
                     _userDialog.IsVisible = false;
                     StartGame();
@@ -223,7 +212,7 @@ public class MultiPlayerManager : MonoBehaviour
                 readyButton.SetActive(true);
             }
         }
-        else if (myFlags.HasFlag(GameStatusFlags.DroneAirborne) && partnerFlags.HasFlag(GameStatusFlags.DroneAirborne))
+        else if (myFlags.HasFlag(GameStatusFlags.DroneAirborne) && (_demoMode || partnerFlags.HasFlag(GameStatusFlags.DroneAirborne)))
         {
             if (_ballRigidbody.isKinematic)
             {
@@ -247,10 +236,11 @@ public class MultiPlayerManager : MonoBehaviour
     private void UserDialog_OkButtonClick(object sender, EventArgs e)
     {
     }
-
+    
+    [UsedImplicitly]
     public void ShowMenu()
     {
-        SceneManager.LoadScene("SettingsMenu");
+        SceneManager.LoadScene("MainMenu");
     }
 
     /// <summary>
@@ -289,7 +279,7 @@ public class MultiPlayerManager : MonoBehaviour
         return GameStatusFlagsExtensions.GetAndResetChanges(ref _statusFlags);
     }
 
-
+    [UsedImplicitly]
     public void SetUserReady()
     {
         SetStatusFlag(GameStatusFlags.UserReady);
@@ -336,7 +326,6 @@ public class MultiPlayerManager : MonoBehaviour
                 Interlocked.MemoryBarrier();
                 Invoke("HideUserDialogBeforeGameStart", 3);
                 Invoke("SendTakeOffCommandBeforeGameStart", 3);
-                _ = _droneControl.TakeOffAsync();
             }
             catch (Exception ex)
             {
@@ -344,35 +333,13 @@ public class MultiPlayerManager : MonoBehaviour
                 Debug.LogError(ex);
             }
         }
-        
-        /*
-        // ReSharper disable once InconsistentlySynchronizedField
-        if (!_gameStarted)
-        {
-            lock (startButton)
-            {
-                if (!_gameStarted)
-                {
-                    _ = _telloClient.TakeOffAsync();
-                    // stop any ball motion:
-                    _ballRigidbody.isKinematic = true;
-                    _ballRigidbody.transform.localPosition = _initialBallPosition;
-                    // allow ball motion:
-                    _ballRigidbody.isKinematic = false;
-                    _ballRigidbody.useGravity = true;
-                    _ballRigidbody.AddForce(new Vector3(ballForceX, 10F, 0));
-                    _gameStarted = true;
-                    startButton.SetActive(false);
-                }
-            }
-        }
-        */
     }
 
     [UsedImplicitly]
     public void StopGame()
     {
         UnsetStatusFlag(GameStatusFlags.UserReady);
+        _gameStarted = false;
         _ballRigidbody.isKinematic = true;
         try
         {
@@ -460,7 +427,7 @@ public class MultiPlayerManager : MonoBehaviour
     private void Ball_CollisionEnter(MonoBehaviour source, Collision collision)
     {
         var go = collision.collider.gameObject;
-        if (_multiPlayerConnection.IsMaster)
+        if (_multiPlayerConnection.IsMaster || _demoMode)
         {
             switch (go.name)
             {
@@ -480,6 +447,14 @@ public class MultiPlayerManager : MonoBehaviour
 
     private void ProcessLastGodUpdate()
     {
+        if (_demoMode)
+        {
+            augmentedDrone.transform.localPosition =
+                _initialAugmentedDronePosition +
+                GetNormalizedStickerTargetPosition();
+            return;
+        }
+
         var godUpdate = _lastIncomingGodUpdate;
         if (godUpdate == null)
             return;

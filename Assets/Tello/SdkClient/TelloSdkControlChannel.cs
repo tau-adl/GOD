@@ -15,7 +15,7 @@ class TelloSdkControlChannel
 
     public const int DefaultUdpPort = 8889;
     public const int DefaultStickDataIntervalMS = 20;
-    public const int DefaultCommandTimeoutMS = 500;
+    public const int DefaultCommandTimeoutMS = 1000;
     public const int DefaultKeepAliveIntervalMS = 3000;
     public const int MaxCommandLength = 128;
     private const int MinSerialNumberLength = 10;
@@ -107,32 +107,32 @@ class TelloSdkControlChannel
 
     protected override void OnStatusChanged(ConnectionStatusChangedEventArgs e)
     {
-        _stickDataTimer.Enabled = e.NewValue == ConnectionStatus.Online;
+        _stickDataTimer.Enabled = e.NewValue >= ConnectionStatus.Connected;
     }
 
-    protected override void ConnectionLoop(Socket socket)
+    protected override void ConnectionLoop(Socket socket, CancellationToken cancel)
     {
         var txBuffer = new byte[MaxCommandLength];
         var rxBuffer = CreateReceiveBuffer();
-        var waitHandles = new[] {_commandQueueCount.AvailableWaitHandle, DisconnectWaitHandle};
         var lastSuccessfulCommand = DateTime.MinValue;
         while (true)
         {
-            var signal =
-                Status == ConnectionStatus.Online &&
-                (DateTime.Now - lastSuccessfulCommand).TotalMilliseconds <= KeepAliveIntervalMS
-                    ? WaitHandle.WaitAny(waitHandles, KeepAliveIntervalMS)
-                    : WaitHandle.WaitTimeout;
-            if (signal == WaitHandle.WaitTimeout)
+            var performInitializationSequence =
+                Status != ConnectionStatus.Online ||
+                (DateTime.Now - lastSuccessfulCommand).TotalMilliseconds > KeepAliveIntervalMS;
+            bool? waitingCommands = null;
+            if (!performInitializationSequence)
+                waitingCommands = _commandQueueCount.Wait(KeepAliveIntervalMS, cancel);
+            if (performInitializationSequence || waitingCommands == false)
             {
-                if (!PerformInitializationSequence(socket, txBuffer, rxBuffer))
-                    return; // failed to initialize.
+                PerformInitializationSequence(socket, txBuffer, rxBuffer);
                 if (Status == ConnectionStatus.Online)
                     lastSuccessfulCommand = DateTime.Now;
-                continue;
+                if (!waitingCommands.HasValue)
+                    waitingCommands = _commandQueueCount.Wait(KeepAliveIntervalMS, cancel);
             }
-            if (signal != 0)
-                return; // disconnecting.
+            if (waitingCommands == false)
+                continue; // currently there are no commands in queue.
             // there's a new outgoing command pending in the queue.
             TaskCompletionSource<string> commandTask;
             // get the command-task from the queue:
@@ -240,10 +240,14 @@ class TelloSdkControlChannel
                     }
                     else
                     {
-                        if (DroneSerialNumber != null)
-                            return DroneSerialNumber.Equals(response, StringComparison.Ordinal);
-                        if (response.Length < MinSerialNumberLength || !response.All(char.IsLetterOrDigit))
+                        if (DroneSerialNumber != null && !DroneSerialNumber.Equals(response, StringComparison.Ordinal))
+                        {
+                            // serial number mismatch, or lost sync.
+                            DroneSerialNumber = null;
                             return false;
+                        }
+                        if (response.Length < MinSerialNumberLength || !response.All(char.IsLetterOrDigit))
+                            return false; // not a valid serial number - lost sync.
                         DroneSerialNumber = response;
                     }
                     continue;
