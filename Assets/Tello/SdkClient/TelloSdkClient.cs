@@ -432,11 +432,16 @@ public class TelloSdkClient
         IsStarted = false;
     }
 
-    private async Task<bool> SendCommandBooleanAsync(string command, string okResponse, int responseTimeoutMS = DefaultTimeoutMS, int retries = DefaultRetries)
+    private async Task<bool> SendCommandBooleanAsync(string command, string okResponse,
+        int responseTimeoutMS = DefaultTimeoutMS, int retries = DefaultRetries)
     {
         var result = await SendCommandAsync(command, responseTimeoutMS, retries);
-        return result.Buffer != null &&
-            Encoding.ASCII.GetString(result.Buffer) == okResponse;
+        var response = result.Buffer != null ? Encoding.ASCII.GetString(result.Buffer) : null;
+        return response != null &&
+               response.StartsWith(okResponse, StringComparison.Ordinal) &&
+               (response.Length == okResponse.Length ||
+                char.IsPunctuation(response[okResponse.Length]) ||
+                char.IsWhiteSpace(response[okResponse.Length]));
     }
 
     private async Task<bool> SendCommandBooleanAsync(string command, int responseTimeoutMS = DefaultTimeoutMS, int retries = DefaultRetries)

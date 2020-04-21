@@ -265,12 +265,14 @@ class TelloSdkControlChannel
 
     public void Connect(IPAddress droneIPAddress)
     {
-        Connect(new IPEndPoint(droneIPAddress, DefaultUdpPort));
+        Connect(new IPEndPoint(IPAddress.Any, DefaultUdpPort),
+            new IPEndPoint(droneIPAddress, DefaultUdpPort));
     }
 
     public void Connect(string droneHostName)
     {
-        Connect(new DnsEndPoint(droneHostName, DefaultUdpPort));
+        Connect(new IPEndPoint(IPAddress.Any, DefaultUdpPort),
+            new DnsEndPoint(droneHostName, DefaultUdpPort));
     }
 
     private async Task<string> SendAsync(string command)
@@ -291,7 +293,11 @@ class TelloSdkControlChannel
     private async Task<bool> SendBooleanCommandAsync(string command, string goodResult = "ok")
     {
         var response = await SendAsync(command);
-        return goodResult.Equals(response, StringComparison.Ordinal);
+        return response != null &&
+               response.StartsWith(goodResult, StringComparison.Ordinal) &&
+               (response.Length == goodResult.Length ||
+                char.IsPunctuation(response[goodResult.Length]) ||
+                char.IsWhiteSpace(response[goodResult.Length]));
     }
 
     public async Task<bool> TakeOffAsync()
