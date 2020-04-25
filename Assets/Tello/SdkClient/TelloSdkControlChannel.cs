@@ -117,6 +117,7 @@ class TelloSdkControlChannel
         var lastSuccessfulCommand = DateTime.MinValue;
         while (true)
         {
+            Debug.Log($"{Name}: BEGIN connection-loop");
             var performInitializationSequence =
                 Status != ConnectionStatus.Online ||
                 (DateTime.Now - lastSuccessfulCommand).TotalMilliseconds > KeepAliveIntervalMS;
@@ -213,54 +214,51 @@ class TelloSdkControlChannel
 
     private bool PerformInitializationSequence(Socket socket, byte[] txBuffer, byte[] rxBuffer)
     {
-        var initializationSequence = new[] {"command", "sn?"};
+        Debug.Log($"{Name}: Starting initialization sequence.");
         // send initialization sequence:
-        foreach (var command in initializationSequence)
+        var count = Encoding.ASCII.GetBytes("command", 0, "command".Length, txBuffer, 0);
+        count = socket.Send(txBuffer, 0, count, SocketFlags.None);
+        if (count == 0) return false; // failed to send the command.
+        Debug.Log($"{Name}: Waiting for drone response (timeout={socket.ReceiveTimeout}ms)...");
+        count = socket.Receive(rxBuffer, 0, rxBuffer.Length, SocketFlags.None, out var socketError);
+        if (socketError == SocketError.Success && count > 0)
         {
-            var count = Encoding.ASCII.GetBytes(command, 0, command.Length, txBuffer, 0);
-            socket.Send(txBuffer, 0, count, SocketFlags.None);
-        }
-
-        // wait for responses:
-        foreach (var command in initializationSequence)
-        {
-            var count = socket.Receive(rxBuffer, 0, rxBuffer.Length, SocketFlags.None, out var socketError);
-            // ReSharper disable once SwitchStatementHandlesSomeKnownEnumValuesWithDefault
-            switch (socketError)
+            var response = Encoding.ASCII.GetString(rxBuffer, 0, count);
+            if (!"ok".Equals(response, StringComparison.Ordinal))
+                return false;
+            count = Encoding.ASCII.GetBytes("sn?", 0, "sn?".Length, txBuffer, 0);
+            count = socket.Send(txBuffer, 0, count, SocketFlags.None);
+            if (count == 0) return false; // failed to send the command.
+            Debug.Log($"{Name}: Waiting for drone response...");
+            count = socket.Receive(rxBuffer, 0, rxBuffer.Length, SocketFlags.None, out socketError);
+            if (socketError == SocketError.Success && count > 0)
             {
-                case SocketError.Success when count == 0:
-                    throw new SocketException((int) SocketError.Interrupted);
-                case SocketError.Success:
+                if (DroneSerialNumber != null && !DroneSerialNumber.Equals(response, StringComparison.Ordinal))
                 {
-                    var response = Encoding.ASCII.GetString(rxBuffer, 0, count);
-                    if (command.Equals("command", StringComparison.Ordinal))
-                    {
-                        if (response != "ok")
-                            return false;
-                    }
-                    else
-                    {
-                        if (DroneSerialNumber != null && !DroneSerialNumber.Equals(response, StringComparison.Ordinal))
-                        {
-                            // serial number mismatch, or lost sync.
-                            DroneSerialNumber = null;
-                            return false;
-                        }
-                        if (response.Length < MinSerialNumberLength || !response.All(char.IsLetterOrDigit))
-                            return false; // not a valid serial number - lost sync.
-                        DroneSerialNumber = response;
-                    }
-                    continue;
+                    // serial number mismatch, or lost sync.
+                    DroneSerialNumber = null;
+                    return false;
                 }
-                case SocketError.TimedOut:
-                    Status = ConnectionStatus.Timeout;
-                    return true;
-                default:
-                    throw new SocketException((int) socketError);
+
+                if (response.Length < MinSerialNumberLength || !response.All(char.IsLetterOrDigit))
+                    return false; // not a valid serial number - lost sync.
+                DroneSerialNumber = response;
             }
         }
-        Status = ConnectionStatus.Online;
-        return true;
+        switch (socketError)
+        {
+            case SocketError.Success when count == 0:
+                throw new SocketException((int)SocketError.Interrupted);
+            case SocketError.Success:
+                Status = ConnectionStatus.Online;
+                return true;
+            case SocketError.TimedOut:
+                Debug.Log($"{Name}: Timeout");
+                Status = ConnectionStatus.Timeout;
+                return true;
+            default:
+                throw new SocketException((int)socketError);
+        }
     }
 
     public void Connect(IPAddress droneIPAddress)

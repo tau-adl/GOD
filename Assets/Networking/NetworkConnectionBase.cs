@@ -248,6 +248,7 @@ public abstract class NetworkConnectionBase
 
     private void CommunicationThreadWork(object state)
     {
+        string threadExitReason = null;
         Debug.Log($"{Name}: communication thread started.");
         var cancel = ((CancellationTokenSource) state).Token;
         while (true)
@@ -267,11 +268,14 @@ public abstract class NetworkConnectionBase
                         if (dnsResult.Length == 0)
                         {
                             // failed to resolve remote host-name.
-                            Debug.LogError($"Could not resolve host-name \"{dnsEndPoint.Host}\".");
+                            Debug.LogError($"{Name}: Could not resolve host-name \"{dnsEndPoint.Host}\".");
                             Status = ConnectionStatus.CantResolveHostName;
                             // sleep for ReconnectIntervalMS:
                             if (!Sleep(ReconnectIntervalMS, cancel))
+                            {
+                                threadExitReason = "cancelled";
                                 return; // abort - we are disconnecting.
+                            }
                             continue;
                         }
 
@@ -308,13 +312,17 @@ public abstract class NetworkConnectionBase
                         Status = ConnectionStatus.NoRoute;
                         // failed to find an appropriate NIC for communicating with
                         // the remote end-point.
-                        Debug.LogError($"The remote IP address {RemoteIPEndPoint.Address} is not on " +
+                        Debug.LogError($"{Name}: The remote IP address {RemoteIPEndPoint.Address} is not on " +
                                        $"a subnet of any of the NICs that are currently up." +
                                        "Make sure Wifi is turned-on and that you are connected to " +
                                        "the correct network.");
                         // sleep for ReconnectIntervalMS:
                         if (!Sleep(ReconnectIntervalMS, cancel))
+                        {
+                            threadExitReason = "cancelled";
                             return; // abort - we are disconnecting.
+                        }
+
                         continue; // try again.
                     }
 
@@ -324,6 +332,7 @@ public abstract class NetworkConnectionBase
                 Interlocked.MemoryBarrier();
                 // create a new UDP client and bind it to the local end-point:
                 socket = CreateSocket(RemoteIPEndPoint.AddressFamily);
+                socket.Blocking = true;
                 socket.ReceiveTimeout = ReceiveTimeoutMS;
                 Bind(socket, LocalEndPoint);
                 // assign the actual local end-point:
@@ -341,23 +350,27 @@ public abstract class NetworkConnectionBase
             }
             catch (OperationCanceledException)
             {
+                threadExitReason = "cancelled";
                 break; // we are disconnecting.
             }
             catch (SocketException ex)
             {
-                if (Status >= ConnectionStatus.Connected)
-                    Debug.LogWarning($"{Name}: Lost connection with {RemoteEndPoint}:\n{ex.Message}");
-                Status = ToConnectionStatus(ex.SocketErrorCode);
+                if (Status >= ConnectionStatus.Connecting)
+                {
+                    Debug.LogWarning($"{Name}: {ex.Message}");
+                    Status = ToConnectionStatus(ex.SocketErrorCode);
+                }
             }
             catch (ThreadAbortException)
             {
                 // thread aborted - suppress exception.
                 Status = ConnectionStatus.Offline;
+                threadExitReason = $"thread-abort";
                 break;
             }
             catch (Exception ex)
             {
-                if (Status != ConnectionStatus.Disconnecting)
+                if (Status >= ConnectionStatus.Connecting)
                 {
                     // unknown error - write log:
                     Debug.LogError(ex.ToString());
@@ -391,7 +404,8 @@ public abstract class NetworkConnectionBase
         if (Status > ConnectionStatus.Offline)
             Status = ConnectionStatus.Offline;
         _communicationThread = null;
-        Debug.Log($"{Name}: communication thread exited.");
+        Debug.Log($"{Name}: communication thread exited.\n" +
+                  $"reason: {threadExitReason ?? "n/a"}");
     }
 
     protected virtual void OnStatusChanged(ConnectionStatusChangedEventArgs e)

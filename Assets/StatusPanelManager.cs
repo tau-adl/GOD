@@ -1,4 +1,5 @@
-﻿using UnityEngine;
+﻿using TMPro;
+using UnityEngine;
 using UnityEngine.UI;
 
 public class StatusPanelManager : MonoBehaviour
@@ -24,6 +25,8 @@ public class StatusPanelManager : MonoBehaviour
     public RawImage droneLed;
     public RawImage userLed;
     public RawImage arLed;
+
+    public TMP_Text text;
 
     #endregion Fields
 
@@ -51,6 +54,7 @@ public class StatusPanelManager : MonoBehaviour
         _arLedOff = Resources.Load<Sprite>("Leds/ar-led-off");
         _arLedYellow = Resources.Load<Sprite>("Leds/ar-led-yellow");
         _arLedGreen = Resources.Load<Sprite>("Leds/ar-led-green");
+        text.text = string.Empty;
     }
 
     private void Start()
@@ -118,6 +122,11 @@ public class StatusPanelManager : MonoBehaviour
     private GameStatusFlags GetStatusFlagsAndResetValueChanged()
     {
         return GameStatusFlagsExtensions.GetAndResetChanges(ref _statusFlags);
+    }
+
+    public void SetText(string text)
+    {
+        this.text.text = text;
     }
 
     #endregion Methods

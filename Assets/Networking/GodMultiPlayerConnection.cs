@@ -2,6 +2,7 @@
 using System.Net;
 using JetBrains.Annotations;
 using UnityEngine;
+// ReSharper disable UseNullPropagation
 
 public sealed class GodMultiPlayerConnection : MonoBehaviour
 {
@@ -15,6 +16,7 @@ public sealed class GodMultiPlayerConnection : MonoBehaviour
     #region Fields
 
     private BasicUdpConnection _connection;
+    private DatagramReceivedCallback _datagramReceivedCallback;
 
     #endregion Fields
 
@@ -42,6 +44,7 @@ public sealed class GodMultiPlayerConnection : MonoBehaviour
     {
         _connection = new BasicUdpConnection(ConnectionName);
         _connection.StatusChanged += ConnectionStatusChanged;
+        _connection.SetDatagramReceivedCallback(_datagramReceivedCallback);
     }
 
     [UsedImplicitly]
@@ -95,7 +98,9 @@ public sealed class GodMultiPlayerConnection : MonoBehaviour
 
     public void SetDatagramReceivedCallback(DatagramReceivedCallback callback)
     {
-        _connection.SetDatagramReceivedCallback(callback);
+        _datagramReceivedCallback = callback;
+        if (_connection != null)
+            _connection.SetDatagramReceivedCallback(callback);
     }
 
     public int Send(byte[] payload, int offset, int size)

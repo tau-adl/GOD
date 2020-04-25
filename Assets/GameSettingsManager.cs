@@ -12,10 +12,14 @@ public class GameSettingsManager : MonoBehaviour
         public const string MissionPadNumber = "MissionPadNumber";
         public const string DroneStickerName = "DroneStickerName";
         public const string DemoMode = "DemoMode";
+        public const string DistanceToCamera = "DistanceToCamera";
+        public const string ScaleFactorZ = "ScaleFactorZ";
     }
 
     public TMP_Dropdown missionPadDropDown;
     public TMP_Dropdown droneStickerDropDown;
+    public InputField distanceToCameraInputField;
+    public InputField scaleFactorZInputField;
 
     public Toggle demoModeToggle;
 
@@ -67,9 +71,13 @@ public class GameSettingsManager : MonoBehaviour
         var selectedMissionPadNumber = PlayerPrefs.GetInt(SettingKeys.MissionPadNumber, 6);
         var selectedSticker = PlayerPrefs.GetString(SettingKeys.DroneStickerName, "Simple-Blue");
         var demoMode = PlayerPrefs.GetInt(SettingKeys.DemoMode, 0);
+        var distanceToCamera = PlayerPrefs.GetFloat(SettingKeys.DistanceToCamera, 1.0F);
+        var scaleFactorZ = PlayerPrefs.GetFloat(SettingKeys.ScaleFactorZ, 1.0F);
         SetMissionPadNumber(selectedMissionPadNumber);
         SetDroneSticker(selectedSticker);
         SetDemoMode(demoMode);
+        distanceToCameraInputField.text = distanceToCamera.ToString("F2");
+        scaleFactorZInputField.text = scaleFactorZ.ToString("F2");
     }
 
     public void ShowMainMenu()
@@ -85,6 +93,8 @@ public class GameSettingsManager : MonoBehaviour
         PlayerPrefs.SetInt(SettingKeys.MissionPadNumber, missionPadNumber);
         PlayerPrefs.SetString(SettingKeys.DroneStickerName, droneStickerName);
         PlayerPrefs.SetInt(SettingKeys.DemoMode, demoMode);
+        PlayerPrefs.SetFloat(SettingKeys.DistanceToCamera, float.Parse(distanceToCameraInputField.text));
+        PlayerPrefs.SetFloat(SettingKeys.ScaleFactorZ, float.Parse(scaleFactorZInputField.text));
     }
 
     [UsedImplicitly]

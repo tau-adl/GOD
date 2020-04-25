@@ -15,6 +15,6 @@ public class MainMenuManager : MonoBehaviour
 
     public void StartMultiplayer()
     {
-        SceneManager.LoadScene("MultiplayerScene");
+        SceneManager.LoadScene("MultiplayerScene2");
     }
 }
