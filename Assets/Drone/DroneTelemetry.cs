@@ -42,16 +42,17 @@ public sealed class DroneTelemetry : MonoBehaviour
     {
         DroneHostName = PlayerPrefs.GetString("DroneHostName", TelloSdkClient.DefaultHostName);
         TelemetryHistory = new TelloSdkTelemetry[1 + TelemetryHistorySize];
-    }
-
-    [UsedImplicitly]
-    private void Start()
-    {
-        _telemetryChannel = new TelloSdkTelemetryChannel();
+        _telemetryChannel = new TelloSdkTelemetryChannel()
+        {
+            ForceSameSubnet = true
+        };
         _telemetryChannel.TelemetryChanged += TelemetryChannelTelemetryChanged;
         _telemetryChannel.StatusChanged += TelemetryChannel_StatusChanged;
-        _telemetryChannel.ForceSameSubnet = true;
-        _telemetryChannel.Connect(DroneHostName);
+    }
+
+    private void Start()
+    {
+        Connect();
     }
 
     [UsedImplicitly]
@@ -68,6 +69,12 @@ public sealed class DroneTelemetry : MonoBehaviour
                 // suppress exceptions.
             }
         }
+    }
+
+    [UsedImplicitly]
+    private void OnApplicationQuit()
+    {
+        OnDestroy();
     }
 
     #endregion MonoBehaviour
@@ -89,6 +96,13 @@ public sealed class DroneTelemetry : MonoBehaviour
             history[i] = TelemetryHistory[i - 1];
         history[0] = ((TelloSdkTelemetryChannel) sender).Telemetry;
         TelemetryHistory = history;
+    }
+
+    public void Connect(string droneHostName = null)
+    {
+        if (droneHostName != null)
+            DroneHostName = droneHostName;
+        _telemetryChannel.Connect(DroneHostName);
     }
 
     #endregion Methods

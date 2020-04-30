@@ -7,6 +7,7 @@ using JetBrains.Annotations;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using Vuforia;
+// ReSharper disable MergeConditionalExpression
 
 
 public class MultiPlayerManager2 : MonoBehaviour
@@ -50,7 +51,9 @@ public class MultiPlayerManager2 : MonoBehaviour
     private bool _demoMode;
     private bool _midAirStagePositioned;
     private GameObject _targetScaleAdapter;
-    private float _scaleFactorZ;
+    private Vector3 _dronePositionScaleFactor;
+    private Vector3 _dronePositionBias;
+    private byte _joystickSensitivity;
     private Vector3 _droneLimitsMin;
     private Vector3 _droneLimitsMax;
 
@@ -123,6 +126,8 @@ public class MultiPlayerManager2 : MonoBehaviour
         _droneTelemetry.StatusChanged += DroneTelemetry_StatusChanged;
         _droneControl = FindObjectOfType<DroneControl>();
         _droneControl.StatusChanged += DroneControl_StatusChanged;
+        //_droneCommunication = FindObjectOfType<DroneCommunication>();
+        //_droneCommunication.StatusChanged += DroneTelemetry_StatusChanged;
         _statusPanelManager = FindObjectOfType<StatusPanelManager>();
         ball.GetComponent<BallBehaviour>().CollisionEnter += Ball_CollisionEnter;
         _userDialog = FindObjectOfType<UserDialog>();
@@ -136,17 +141,20 @@ public class MultiPlayerManager2 : MonoBehaviour
         // set screen orientation to horizontal:
         Screen.orientation = ScreenOrientation.LandscapeLeft;
         _gameStarted = false;
-        // get game settings:
-        var selectedSticker = PlayerPrefs.GetString(GameSettingsManager.SettingKeys.DroneStickerName, "Simple-Blue");
-        _demoMode = PlayerPrefs.GetInt(GameSettingsManager.SettingKeys.DemoMode, 0) != 0;
-        _discovery.StartDiscovery();
         _userDialog.IsVisible = false;
-        midAirPositioner.GetComponent<MidAirPositionerBehaviour>().DistanceToCamera =
-            PlayerPrefs.GetFloat(GameSettingsManager.SettingKeys.DistanceToCamera, 1.0F);
-        _scaleFactorZ = PlayerPrefs.GetFloat(GameSettingsManager.SettingKeys.ScaleFactorZ, 1.0F);
+        // get game settings:
+        _demoMode = GodSettings.GetDemoMode();
+        _dronePositionScaleFactor = GodSettings.GetDronePositionScaleFactor();
+        _dronePositionBias = GodSettings.GetDronePositionBias();
+        _joystickSensitivity = GodSettings.GetJoystickSensitivity();
+        // compute static fields:
+        ComputeDroneLimits();
+        // enable networking:
+        Debug.Log("Starting discovery");
+        _discovery.StartDiscovery();
+        // initialize GUI mode:
         OnRepositionStageButtonClicked();
         InvokeRepeating("UpdateGameStatus", 0, 1);
-        ComputeDroneLimits();
     }
 
     [UsedImplicitly]
@@ -155,9 +163,22 @@ public class MultiPlayerManager2 : MonoBehaviour
         try
         {
             // update stick data:
-            _droneControl.StickData.Throttle = (sbyte)(100 * leftJoystick.outputVector.y);
-            _droneControl.StickData.Roll = (sbyte)(100 * rightJoystick.outputVector.y);
-            _droneControl.StickData.Pitch = (sbyte)(-100 * rightJoystick.outputVector.x);
+            _droneControl.StickData.Yaw = (sbyte)(-_joystickSensitivity * leftJoystick.outputVector.x);
+            _droneControl.StickData.Roll = (sbyte)(_joystickSensitivity * leftJoystick.outputVector.y);
+            _droneControl.StickData.Pitch = (sbyte)(-_joystickSensitivity * rightJoystick.outputVector.x);
+            _droneControl.StickData.Throttle = (sbyte) (_joystickSensitivity * rightJoystick.outputVector.y);
+            var stickerPosition = _dronePositionBias + GetNormalizedStickerTargetPosition();
+            // update real-drone position:
+            var z = stickerPosition.z;
+            // limit z value:
+            if (Math.Abs(z) > 20)
+                z = Math.Sign(z) * 20;
+            stickerPosition = new Vector3(stickerPosition.x, stickerPosition.y, 0);
+            realDrone.transform.localPosition = EnforceDroneLimits(_initialRealDronePosition + stickerPosition);
+            playground.transform.localPosition = new Vector3(
+                playground.transform.localPosition.x,
+                playground.transform.localPosition.y,
+                _initialPlaygroundPosition.z + z);
             // send update message:
             SendGodUpdate();
             // process update message:
@@ -172,13 +193,14 @@ public class MultiPlayerManager2 : MonoBehaviour
     [UsedImplicitly]
     private void UpdateGameStatus()
     {
+        var lastIncomingGodUpdate = _lastIncomingGodUpdate;
         var myFlags = (GameStatusFlags) _statusFlags;
-        var partnerFlags = _lastIncomingGodUpdate?.GameStatus ?? GameStatusFlags.None;
+        var partnerFlags = lastIncomingGodUpdate != null ? lastIncomingGodUpdate.GameStatus : GameStatusFlags.None;
         var partnerReady = partnerFlags.HasFlag(GameStatusFlags.AllClear);
         if (partnerReady ^ myFlags.HasFlag(GameStatusFlags.PartnerReady))
             myFlags = ChangeStatusFlag(GameStatusFlags.PartnerReady, partnerReady);
 
-        var droneTelemetry = _droneTelemetry != null ? _droneTelemetry.Telemetry : null;
+        var droneTelemetry = _droneTelemetry.Telemetry;
         var droneAirborne = droneTelemetry != null && droneTelemetry.Height > 0;
         if (myFlags.HasFlag(GameStatusFlags.DroneAirborne) ^ droneAirborne)
             ChangeStatusFlag(GameStatusFlags.DroneAirborne, droneAirborne);
@@ -219,7 +241,7 @@ public class MultiPlayerManager2 : MonoBehaviour
         }
         else
         {
-            if (_gameStarted && !partnerFlags.HasFlag(GameStatusFlags.UserReady))
+            if (_gameStarted && !partnerFlags.HasFlag(GameStatusFlags.UserReady) && !_demoMode)
                 StopGame();
             else if (myFlags.HasFlag(GameStatusFlags.DroneAirborne) &&
                      (_demoMode || partnerFlags.HasFlag(GameStatusFlags.DroneAirborne)))
@@ -364,6 +386,7 @@ public class MultiPlayerManager2 : MonoBehaviour
         {
             // suppress exception.
         }
+
         readyButton.SetActive(_midAirStagePositioned);
         repositionStageButton.SetActive(true);
         menuButton.SetActive(true);
@@ -415,8 +438,11 @@ public class MultiPlayerManager2 : MonoBehaviour
     {
         VuforiaARController.Instance.UnregisterVuforiaStartedCallback(OnVuforiaStarted);
         // set camera settings:
+        Debug.Log("Setting focus mode to auto");
         CameraDevice.Instance.SetFocusMode(CameraDevice.FocusMode.FOCUS_MODE_CONTINUOUSAUTO);
+        Debug.Log("Setting exposure-time to auto");
         CameraDevice.Instance.SetField("exposure-time", "auto");
+        Debug.Log("Setting iso to auto");
         CameraDevice.Instance.SetField("iso", "auto");
     }
 
@@ -540,17 +566,9 @@ public class MultiPlayerManager2 : MonoBehaviour
     {
         if (_demoMode)
         {
-            var stickerPosition = GetNormalizedStickerTargetPosition();
-            scoreText.text = stickerPosition.ToString();
-            var z = stickerPosition.z;
-            stickerPosition = new Vector3(stickerPosition.x - _initialPlaygroundPosition.x, stickerPosition.y - _initialPlaygroundPosition.y, 0);
-            realDrone.transform.localPosition = EnforceDroneLimits(_initialRealDronePosition + stickerPosition);
-            var zInvertedStickerPosition = new Vector3(stickerPosition.x, stickerPosition.y, -stickerPosition.z);
-            augmentedDrone.transform.localPosition = EnforceDroneLimits(_initialAugmentedDronePosition + zInvertedStickerPosition);
-            playground.transform.localPosition = new Vector3(
-                playground.transform.localPosition.x,
-                playground.transform.localPosition.y,
-                z);
+            var stickerPosition = _dronePositionBias + GetNormalizedStickerTargetPosition();
+            stickerPosition = new Vector3(stickerPosition.x, stickerPosition.y, 0);
+            augmentedDrone.transform.localPosition = EnforceDroneLimits(_initialAugmentedDronePosition + stickerPosition);
             return;
         }
 
@@ -584,14 +602,10 @@ public class MultiPlayerManager2 : MonoBehaviour
 
     private Vector3 GetNormalizedStickerTargetPosition()
     {
-        var scaleAdapter = _targetScaleAdapter.transform.localScale;
-        var x = (realDronePositionProvider.transform.position.x - _initialRealDronePositionProviderPosition.x) /
-                scaleAdapter.x;
-        var y = (realDronePositionProvider.transform.position.y - _initialRealDronePositionProviderPosition.y) /
-                scaleAdapter.y;
-        var z = (realDronePositionProvider.transform.position.z - _initialRealDronePositionProviderPosition.z) /
-                scaleAdapter.z;
-        return new Vector3(x, y, z * _scaleFactorZ);
+        var x = (realDronePositionProvider.transform.position.x - _initialRealDronePositionProviderPosition.x);
+        var y = (realDronePositionProvider.transform.position.y - _initialRealDronePositionProviderPosition.y);
+        var z = (realDronePositionProvider.transform.position.z - _initialRealDronePositionProviderPosition.z);
+        return new Vector3(x * _dronePositionScaleFactor.x, y * _dronePositionScaleFactor.y, z * _dronePositionScaleFactor.z);
     }
 
     private void SendGodUpdate()
@@ -608,7 +622,8 @@ public class MultiPlayerManager2 : MonoBehaviour
                 GameStatus = GameStatus
             };
             var count = datagram.Serialize(_godUpdateTxBuffer, 0);
-            _multiPlayerConnection.Send(_godUpdateTxBuffer, 0, count);
+            if (_multiPlayerConnection != null)
+                _multiPlayerConnection.Send(_godUpdateTxBuffer, 0, count);
         }
         catch (Exception ex)
         {

@@ -6,7 +6,9 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
+// ReSharper disable UseNullPropagation
 
+// ReSharper disable JoinNullCheckWithUsage
 
 [Flags]
 public enum TelloSdkClientFlags
@@ -61,11 +63,14 @@ public class TelloSdkClient
     public TelloSdkStickData StickData
     {
         get => _stickData;
-        set => _stickData = value ?? throw new ArgumentNullException(nameof(value));
+        set
+        {
+            if (value == null)
+                throw new ArgumentNullException(nameof(value));
+            _stickData = value;
+        }
     }
-
-    public byte? BatteryPercent => Telemetry?.BatteryPercent;
-
+    
     public TelloSdkClientFlags ClientFlags => _clientFlags;
 
     public TelloSdkTelemetry[] TelemetryHistory => _telemetryHistory;
@@ -146,6 +151,7 @@ public class TelloSdkClient
                 _commandChannel.Client.Bind(new IPEndPoint(localIPAddress, controlChannelPort));
             _commandChannel.Connect(new IPEndPoint(telloIPAddress, ControlUdpPort));
             _telemetryChannel = _commandChannel;
+            Status = ConnectionStatus.Connected;
         }
         else
         {
@@ -177,6 +183,7 @@ public class TelloSdkClient
                 _cts.Dispose();
             IsStarted = false;
             IsDisposed = true;
+            Status = ConnectionStatus.Offline;
             if (disposing)
                 GC.SuppressFinalize(this);
         }
@@ -278,11 +285,13 @@ public class TelloSdkClient
                 var recvTask = _telemetryChannel.ReceiveAsync();
                 if (!recvTask.Wait(1000, _cts.Token))
                 {
+                    Status = ConnectionStatus.Timeout;
                     // timeout - try to tell the drone to enter SDK mode:
                     Debug.LogWarning($"{GetType().Name}: Timeout while waiting for a telemetry datagram.");
                     _ = SendCommandAsync("command", 0, 0);
                     continue;
                 }
+                Status = ConnectionStatus.Online;
                 // parse telemetry datagram:
                 var text = Encoding.ASCII.GetString(recvTask.Result.Buffer);
                 bool ok = TelloSdkTelemetry.TryParse(text, out var telemetry);                
@@ -341,6 +350,7 @@ public class TelloSdkClient
             }
             await Task.WhenAny(tasks);
             _cts.Token.ThrowIfCancellationRequested();
+            Status = ConnectionStatus.Online;
             IsStarted = true;
         }
         if (_clientFlags.HasFlag(TelloSdkClientFlags.Telemetry))
@@ -367,7 +377,9 @@ public class TelloSdkClient
 
     private void OnStatusChanged(ConnectionStatusChangedEventArgs e)
     {
-        StatusChanged?.Invoke(this, e);
+        var handler = StatusChanged;
+        if (handler != null)
+            handler.Invoke(this, e);
     }
 
     private void StickDataTimer_Elapsed(object sender, System.Timers.ElapsedEventArgs e)

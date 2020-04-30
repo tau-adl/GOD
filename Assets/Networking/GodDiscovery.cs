@@ -6,6 +6,8 @@ using System.Net.Sockets;
 using System.Threading;
 using UnityEngine;
 using System.Net.NetworkInformation;
+using JetBrains.Annotations;
+// ReSharper disable ConvertIfStatementToNullCoalescingExpression
 
 public class GodDiscovery : MonoBehaviour
 {
@@ -154,6 +156,7 @@ public class GodDiscovery : MonoBehaviour
 
     #region Private Methods
 
+    [UsedImplicitly]
     private void OnDestroy()
     {
         try
@@ -164,6 +167,12 @@ public class GodDiscovery : MonoBehaviour
         {
             // suppress exceptions
         }
+    }
+    
+    [UsedImplicitly]
+    private void OnApplicationQuit()
+    {
+        OnDestroy();
     }
 
     private static void IPv4Discovery_EndSendTo(IAsyncResult asyncResult)
@@ -340,11 +349,11 @@ public class GodDiscovery : MonoBehaviour
                 else
                 {
                     // send broadcast on all available Wifi and Ethernet NICs:
-                    var unicastAddresses =
+                    var unicastAddresses = (
                         from nic in NetUtils.GetNetworkInterfaces()
                         where nic.OperationalStatus == OperationalStatus.Up
                         from address in nic.GetIPProperties().UnicastAddresses
-                        select address;
+                        select address).ToArray();
                     // update the local IP address array (pointer update - thread-safe):
                     _localIPAddresses = unicastAddresses.Select(address => address.Address).ToArray();
                     Interlocked.MemoryBarrier();
@@ -430,7 +439,10 @@ public class GodDiscovery : MonoBehaviour
             return; // already started.
         Debug.Log($"{GetType().Name}.{nameof(StartDiscovery)}() called.");
         // initialize the broadcast message:
-        _broadcastMessagePrefix = Encoding.UTF8.GetBytes($"{DiscoveryPrefix} {Application.companyName}.{Application.productName} {Application.version} {RoomName ?? DefaultRoomName}\n");
+        var roomName = RoomName;
+        if (roomName == null)
+            roomName = DefaultRoomName;
+        _broadcastMessagePrefix = Encoding.UTF8.GetBytes($"{DiscoveryPrefix} {Application.companyName}.{Application.productName} {Application.version} {roomName}\n");
         var additionalFields = Encoding.UTF8.GetBytes($"instance: {Interlocked.Increment(ref _instanceNumber)}");
         _broadcastMessage = new byte[_broadcastMessagePrefix.Length + additionalFields.Length];
         Buffer.BlockCopy(_broadcastMessagePrefix, 0, _broadcastMessage, 0, _broadcastMessagePrefix.Length);
@@ -455,7 +467,7 @@ public class GodDiscovery : MonoBehaviour
             Priority = System.Threading.ThreadPriority.Lowest
         };
         // make sure the thread is started only after
-        // all field values commited to memory:
+        // all field values committed to memory:
         Interlocked.MemoryBarrier();
         // start the discovery thread:
         _discoveryThread.Start();

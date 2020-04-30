@@ -1,17 +1,25 @@
-﻿using UnityEngine;
+﻿using JetBrains.Annotations;
+using UnityEngine;
+// ReSharper disable UseNullPropagation
 
 public class BallBehaviour : MonoBehaviour
 {
     public event CollisionEventHandler CollisionEnter;
     public event TriggerEventHandler TriggerEnter;
 
-    void OnCollisionEnter(Collision collision)
+    [UsedImplicitly]
+    private void OnCollisionEnter(Collision collision)
     {
-        CollisionEnter?.Invoke(this, collision);
+        var handler = CollisionEnter;
+        if (handler != null)
+            handler.Invoke(this, collision);
     }
 
-    void OnTriggerEnter(Collider other)
+    [UsedImplicitly]
+    private void OnTriggerEnter(Collider other)
     {
-        TriggerEnter?.Invoke(this, other);
+        var handler = TriggerEnter;
+        if (handler != null)
+            handler.Invoke(this, other);
     }
 }

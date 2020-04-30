@@ -19,7 +19,10 @@ public sealed class BasicUdpConnection
 
     protected override bool OnPacketReceived(IPEndPoint remoteEndPoint, byte[] buffer, int offset, int count)
     {
-        return _datagramReceivedCallback?.Invoke(this, remoteEndPoint, buffer, offset, count) ?? true;
+        var callback = _datagramReceivedCallback;
+        if (callback != null)
+            return callback.Invoke(this, remoteEndPoint, buffer, offset, count);
+        return true;
     }
 
     #endregion NetworkConnectionBase

@@ -41,28 +41,30 @@ public class DroneControl : MonoBehaviour
     private void Awake()
     {
         DroneHostName = PlayerPrefs.GetString("DroneHostName", TelloSdkClient.DefaultHostName);
-    }
-
-    [UsedImplicitly]
-    private void Start()
-    {
-        _controlChannel = new TelloSdkControlChannel();
+        _controlChannel = new TelloSdkControlChannel
+        {
+            ForceSameSubnet = true
+        };
         _controlChannel.StatusChanged += ControlChannel_StatusChanged;
         _controlChannel.SerialNumberChanged += ControlChannel_SerialNumberChanged;
-        _controlChannel.ForceSameSubnet = true;
-        _controlChannel.Connect(DroneHostName);
+    }
+
+    private void Start()
+    {
+        Connect();
     }
 
     [UsedImplicitly]
     private void OnDestroy()
     {
-        if (_controlChannel != null)
+        var controlChannel = _controlChannel;
+        if (controlChannel != null)
         {
             // try to command the drone to land:
             try
             {
                 // ReSharper disable once AssignmentIsFullyDiscarded
-                _ = _controlChannel.LandAsync();
+                _ = controlChannel.LandAsync();
             }
             catch
             {
@@ -71,7 +73,7 @@ public class DroneControl : MonoBehaviour
             // attempt to disconnect the connection gracefully:
             try
             {
-                _controlChannel?.Disconnect();
+                controlChannel.Disconnect();
             }
             catch
             {
@@ -80,6 +82,12 @@ public class DroneControl : MonoBehaviour
         }
     }
 
+    [UsedImplicitly]
+    private void OnApplicationQuit()
+    {
+        OnDestroy();
+    }
+    
     #endregion MonoBehaviour
 
     #region Methods
@@ -154,6 +162,13 @@ public class DroneControl : MonoBehaviour
         if (_controlChannel == null)
             throw new InvalidOperationException("Not started");
         return await _controlChannel.EnableWifiAccessPointMode(ssid, password);
+    }
+
+    public void Connect(string droneHostName = null)
+    {
+        if (droneHostName != null)
+            DroneHostName = droneHostName;
+        _controlChannel.Connect(DroneHostName);
     }
 
     #endregion Methods

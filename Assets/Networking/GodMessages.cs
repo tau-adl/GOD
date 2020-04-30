@@ -31,7 +31,7 @@ internal static class GodMessages
 
     public static string ToString(GodScore score)
     {
-        return score.ToString() ?? "";
+        return score != null ? score.ToString() : "";
     }
 
     public static bool TryParse(string text, out GodScore value)

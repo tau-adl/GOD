@@ -7,8 +7,10 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using UnityEngine;
+// ReSharper disable UseNullPropagation
+// ReSharper disable JoinNullCheckWithUsage
 
-class TelloSdkControlChannel
+public class TelloSdkControlChannel
     : NetworkConnectionBase
 {
     #region Constants
@@ -51,7 +53,12 @@ class TelloSdkControlChannel
     public TelloSdkStickData StickData
     {
         get => _stickData;
-        set => _stickData = value ?? throw new ArgumentNullException(nameof(value));
+        set
+        {
+            if (value == null)
+                throw new ArgumentNullException(nameof(value));
+            _stickData = value;
+        }
     }
 
     public string DroneSerialNumber
@@ -62,7 +69,9 @@ class TelloSdkControlChannel
             if (!string.Equals(_droneSerialNumber, value, StringComparison.Ordinal))
             {
                 _droneSerialNumber = value;
-                SerialNumberChanged?.Invoke(this, EventArgs.Empty);
+                var handler = SerialNumberChanged;
+                if (handler != null)
+                    handler.Invoke(this, EventArgs.Empty);
             }
         }
     }
@@ -80,34 +89,44 @@ class TelloSdkControlChannel
         _stickDataTimer.AutoReset = false;
     }
 
+    ~TelloSdkControlChannel()
+    {
+        Dispose(false);
+    }
+
     protected override void Dispose(bool disposing)
     {
-        if (disposing)
+        if (!IsDisposed)
         {
-            // stop the stick data-timer:
-            _stickDataTimer?.Dispose();
-            _commandQueueCount?.Dispose();
+            if (disposing)
+            {
+                // stop the stick data-timer:
+                if (_stickDataTimer != null)
+                    _stickDataTimer.Dispose();
+                if (_commandQueueCount != null)
+                    _commandQueueCount.Dispose();
+            }
         }
-        base.Dispose(disposing);
     }
 
     #endregion Construction & Destruction
 
     #region NetworkConnectionBase
 
-    protected override bool OnPacketReceived(IPEndPoint remoteEndPoint, byte[] buffer, int offset, int count)
-    {
-        return true;
-    }
-
     protected override Socket CreateSocket(AddressFamily addressFamily)
     {
         return new Socket(addressFamily, SocketType.Dgram, ProtocolType.Udp);
     }
 
+    protected override bool OnPacketReceived(IPEndPoint remoteEndPoint, byte[] buffer, int offset, int count)
+    {
+        return true;
+    }
+
     protected override void OnStatusChanged(ConnectionStatusChangedEventArgs e)
     {
-        _stickDataTimer.Enabled = e.NewValue >= ConnectionStatus.Connected;
+        _stickDataTimer.Enabled = e.NewValue == ConnectionStatus.Online;
+        base.OnStatusChanged(e);
     }
 
     protected override void ConnectionLoop(Socket socket, CancellationToken cancel)
@@ -147,7 +166,8 @@ class TelloSdkControlChannel
             // send the command to the drone:
             var command = (string) commandTask.Task.AsyncState;
             var count = Encoding.ASCII.GetBytes(command, 0, command.Length, txBuffer, 0);
-            socket.Send(txBuffer, 0, count, SocketFlags.None);
+            count = socket.Send(txBuffer, 0, count, SocketFlags.None);
+            if (count == 0) return;
             // wait for a response from the drone:
             count = socket.Receive(rxBuffer, 0, rxBuffer.Length, SocketFlags.None, out var socketError);
             switch (socketError)
@@ -217,6 +237,7 @@ class TelloSdkControlChannel
         Debug.Log($"{Name}: Starting initialization sequence.");
         // send initialization sequence:
         var count = Encoding.ASCII.GetBytes("command", 0, "command".Length, txBuffer, 0);
+        Debug.Log($"{Name}: Sending command \"command\"");
         count = socket.Send(txBuffer, 0, count, SocketFlags.None);
         if (count == 0) return false; // failed to send the command.
         Debug.Log($"{Name}: Waiting for drone response (timeout={socket.ReceiveTimeout}ms)...");
@@ -224,40 +245,49 @@ class TelloSdkControlChannel
         if (socketError == SocketError.Success && count > 0)
         {
             var response = Encoding.ASCII.GetString(rxBuffer, 0, count);
+            Debug.Log($"{Name}: Drone responded with \"{response}\"");
             if (!"ok".Equals(response, StringComparison.Ordinal))
                 return false;
             count = Encoding.ASCII.GetBytes("sn?", 0, "sn?".Length, txBuffer, 0);
+            Debug.Log($"{Name}: Sending command \"sn?\"");
             count = socket.Send(txBuffer, 0, count, SocketFlags.None);
             if (count == 0) return false; // failed to send the command.
-            Debug.Log($"{Name}: Waiting for drone response...");
+            Debug.Log($"{Name}: Waiting for drone response (timeout={socket.ReceiveTimeout}ms)...");
             count = socket.Receive(rxBuffer, 0, rxBuffer.Length, SocketFlags.None, out socketError);
             if (socketError == SocketError.Success && count > 0)
             {
+                response = Encoding.ASCII.GetString(rxBuffer, 0, count);
+                Debug.Log($"{Name}: Drone responded with \"{response}\"");
                 if (DroneSerialNumber != null && !DroneSerialNumber.Equals(response, StringComparison.Ordinal))
                 {
+                    Debug.Log($"{Name}: Drone serial-number mismatch.");
                     // serial number mismatch, or lost sync.
                     DroneSerialNumber = null;
                     return false;
                 }
-
                 if (response.Length < MinSerialNumberLength || !response.All(char.IsLetterOrDigit))
+                {
+                    Debug.Log($"{Name}: Invalid drone serial-number.");
                     return false; // not a valid serial number - lost sync.
+                }
                 DroneSerialNumber = response;
             }
         }
         switch (socketError)
         {
             case SocketError.Success when count == 0:
-                throw new SocketException((int)SocketError.Interrupted);
+                Debug.Log($"{Name}: Receive count is 0.");
+                throw new SocketException((int) SocketError.Interrupted);
             case SocketError.Success:
                 Status = ConnectionStatus.Online;
                 return true;
+            case SocketError.WouldBlock: // returned instead of TimedOut in Android.
             case SocketError.TimedOut:
                 Debug.Log($"{Name}: Timeout");
                 Status = ConnectionStatus.Timeout;
                 return true;
             default:
-                throw new SocketException((int)socketError);
+                throw new SocketException((int) socketError);
         }
     }
 
@@ -269,8 +299,11 @@ class TelloSdkControlChannel
 
     public void Connect(string droneHostName)
     {
-        Connect(new IPEndPoint(IPAddress.Any, DefaultUdpPort),
-            new DnsEndPoint(droneHostName, DefaultUdpPort));
+        if (IPAddress.TryParse(droneHostName, out var ipAddress))
+            Connect(ipAddress);
+        else
+            Connect(new IPEndPoint(IPAddress.Any, DefaultUdpPort),
+                new DnsEndPoint(droneHostName, DefaultUdpPort));
     }
 
     private async Task<string> SendAsync(string command)

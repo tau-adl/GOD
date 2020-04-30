@@ -128,13 +128,7 @@ public class MultiPlayerManager : MonoBehaviour
         Screen.orientation = ScreenOrientation.LandscapeLeft;
         _gameStarted = false;
         // get game settings:
-        var missionPadNumber = PlayerPrefs.GetInt(GameSettingsManager.SettingKeys.MissionPadNumber, 6);
-        var selectedSticker = PlayerPrefs.GetString(GameSettingsManager.SettingKeys.DroneStickerName, "Simple-Blue");
-        _demoMode = PlayerPrefs.GetInt(GameSettingsManager.SettingKeys.DemoMode, 0) != 0;
-
-        var missionPadTargetBehaviour = missionPadTarget.GetComponent<ImageTargetBehaviour>();
-        var droneStickerTargetBehaviour = droneStickerTarget.GetComponent<ImageTargetBehaviour>();
-
+        _demoMode = GodSettings.GetDemoMode();
         _discovery.StartDiscovery();
         _userDialog.IsVisible = false;
         InvokeRepeating("UpdateGameStatus", 0, 1);

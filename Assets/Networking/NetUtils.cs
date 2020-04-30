@@ -89,7 +89,7 @@ public static class NetUtils
     public static IPAddress GetLocalIPAddress(IPAddress remoteIPAddress)
     {
         var info = GetLocalIPAddressInformationFromRemoteAddress(remoteIPAddress);
-        return info?.Item1.OperationalStatus == OperationalStatus.Up
+        return info != null && info.Item1.OperationalStatus == OperationalStatus.Up
             ? info.Item2.Address
             : null;
     }

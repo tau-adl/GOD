@@ -64,6 +64,13 @@ public sealed class GodMultiPlayerConnection : MonoBehaviour
         }
     }
 
+
+    [UsedImplicitly]
+    private void OnApplicationQuit()
+    {
+        OnDestroy();
+    }
+
     #endregion MonoBehaviour
 
     #region Methods
@@ -81,7 +88,10 @@ public sealed class GodMultiPlayerConnection : MonoBehaviour
                 Debug.Log($"{ConnectionName}: {masterEndPoint} will act as master.");
                 break;
         }
-        StatusChanged?.Invoke(this, e);
+
+        var handler = StatusChanged;
+        if (handler != null)
+            handler.Invoke(this, e);
     }
 
     public void Connect(IPAddress localIPAddress, IPAddress remoteIPAddress)

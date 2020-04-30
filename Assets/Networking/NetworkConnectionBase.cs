@@ -3,8 +3,9 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Threading;
-using System.Threading.Tasks;
 using UnityEngine;
+// ReSharper disable UseNullPropagation
+// ReSharper disable JoinNullCheckWithUsage
 
 public abstract class NetworkConnectionBase
     : IDisposable
@@ -91,14 +92,22 @@ public abstract class NetworkConnectionBase
 
     protected NetworkConnectionBase(string name, IPEndPoint localEndPoint, IPEndPoint remoteEndPoint)
     {
-        Name = name ?? throw new ArgumentNullException(nameof(name));
-        LocalEndPoint = localEndPoint ?? throw new ArgumentNullException(nameof(localEndPoint));
-        RemoteEndPoint = remoteEndPoint ?? throw new ArgumentNullException(nameof(remoteEndPoint));
+        if (name == null)
+            throw new ArgumentNullException(nameof(name));
+        if (localEndPoint == null)
+            throw new ArgumentNullException(nameof(localEndPoint));
+        if (remoteEndPoint == null)
+            throw new ArgumentNullException(nameof(remoteEndPoint));
+        Name = name;
+        LocalEndPoint = localEndPoint;
+        RemoteEndPoint = remoteEndPoint;
     }
 
     protected NetworkConnectionBase(string name)
     {
-        Name = name ?? throw new ArgumentNullException(nameof(name));
+        if (name == null)
+            throw new ArgumentNullException(nameof(name));
+        Name = name;
     }
 
     ~NetworkConnectionBase()
@@ -186,7 +195,9 @@ public abstract class NetworkConnectionBase
 
     protected virtual void Connect(Socket socket, IPEndPoint remoteEndPoint, CancellationToken cancel)
     {
-        socket.Connect(remoteEndPoint);
+        // a Unity bug does not allow the usage of socket.Connect(EndPoint).
+        // therefore, we use socket.Connect(string, int) instead.
+        socket.Connect(remoteEndPoint.Address.ToString(), remoteEndPoint.Port);
         Debug.Log($"{Name}: Connected to {socket.RemoteEndPoint} ({socket.ProtocolType.ToString().ToUpper()})");
     }
 
@@ -220,6 +231,7 @@ public abstract class NetworkConnectionBase
                         socket.Close();
                         return;
                     }
+                case SocketError.WouldBlock: // returned instead of TimedOut in Android.
                 case SocketError.TimedOut:
                     Status = ConnectionStatus.Timeout;
                     continue;
@@ -332,7 +344,6 @@ public abstract class NetworkConnectionBase
                 Interlocked.MemoryBarrier();
                 // create a new UDP client and bind it to the local end-point:
                 socket = CreateSocket(RemoteIPEndPoint.AddressFamily);
-                socket.Blocking = true;
                 socket.ReceiveTimeout = ReceiveTimeoutMS;
                 Bind(socket, LocalEndPoint);
                 // assign the actual local end-point:
@@ -380,7 +391,8 @@ public abstract class NetworkConnectionBase
             finally
             {
                 _socket = null;
-                socket?.Close();
+                if (socket != null)
+                    socket.Close();
             }
             // check if we are disconnecting:
             if (Status == ConnectionStatus.Disconnecting)
@@ -405,12 +417,14 @@ public abstract class NetworkConnectionBase
             Status = ConnectionStatus.Offline;
         _communicationThread = null;
         Debug.Log($"{Name}: communication thread exited.\n" +
-                  $"reason: {threadExitReason ?? "n/a"}");
+                  $"reason: {threadExitReason}");
     }
 
     protected virtual void OnStatusChanged(ConnectionStatusChangedEventArgs e)
     {
-        StatusChanged?.Invoke(this, e);
+        var handler = StatusChanged;
+        if (handler != null)
+            handler.Invoke(this, e);
     }
 
 
@@ -491,12 +505,14 @@ public abstract class NetworkConnectionBase
 
     public void Connect(IPEndPoint localEndPoint, EndPoint remoteEndPoint)
     {
+        if (localEndPoint == null)
+            throw new ArgumentNullException(nameof(localEndPoint));
         if (remoteEndPoint == null)
             throw new ArgumentNullException(nameof(remoteEndPoint));
         if (!(remoteEndPoint is IPEndPoint) && !(remoteEndPoint is DnsEndPoint))
             throw new ArgumentException(
                 $"Only {typeof(IPEndPoint).Name} and {typeof(DnsEndPoint).Name} are currently supported.", nameof(remoteEndPoint));
-        _localEndPoint = LocalEndPoint = (localEndPoint ?? throw new ArgumentNullException(nameof(localEndPoint)));
+        _localEndPoint = LocalEndPoint = localEndPoint;
         RemoteEndPoint = remoteEndPoint;
         // make sure we are not connected:
         Disconnect();
@@ -526,7 +542,7 @@ public abstract class NetworkConnectionBase
         try
         {
             var socket = _socket;
-            if (socket != null && socket.Connected)
+            if (socket != null)
             {
                 var count = socket.Send(payload, offset, size, SocketFlags.None, out var socketError);
                 if (socketError == SocketError.Success)
@@ -534,7 +550,7 @@ public abstract class NetworkConnectionBase
             }
             return 0;
         }
-        catch (InvalidOperationException)
+        catch
         {
             return 0;
         }

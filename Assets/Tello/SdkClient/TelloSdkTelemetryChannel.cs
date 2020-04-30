@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using UnityEngine;
+// ReSharper disable UseNullPropagation
 
 class TelloSdkTelemetryChannel
     : NetworkConnectionBase
@@ -46,7 +47,9 @@ class TelloSdkTelemetryChannel
         if (e.NewValue != ConnectionStatus.Online && _telemetry != null)
         {
             _telemetry = null;
-            TelemetryChanged?.Invoke(this, EventArgs.Empty);
+            var handler = TelemetryChanged;
+            if (handler != null)
+                handler.Invoke(this, EventArgs.Empty);
         }
         base.OnStatusChanged(e);
     }
@@ -59,7 +62,9 @@ class TelloSdkTelemetryChannel
             Debug.LogError("Failed to parse Tello SDK telemetry datagram.");
             return false;
         }
-        TelemetryChanged?.Invoke(this, EventArgs.Empty);
+        var handler = TelemetryChanged;
+        if (handler != null)
+            handler.Invoke(this, EventArgs.Empty);
         return true; // we don't call base method.
     }
 
