@@ -207,6 +207,7 @@ public class TelloSdkControlChannel
             var stickData = _stickData;
             var stickCommand = $"rc {stickData.Roll} {stickData.Pitch} {stickData.Throttle} {stickData.Yaw}";
             var bytes = Encoding.ASCII.GetBytes(stickCommand);
+            Debug.Log(stickCommand);
             Send(bytes);
         }
         catch (ObjectDisposedException)
