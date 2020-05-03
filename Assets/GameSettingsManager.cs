@@ -8,6 +8,7 @@ public class GameSettingsManager : MonoBehaviour
     public InputField scaleFactorInputField;
     public InputField biasInputField;
     public Slider joystickSensitivitySlider;
+    public Slider ballSpeedSlider;
 
     public Toggle demoModeToggle;
 
@@ -18,6 +19,7 @@ public class GameSettingsManager : MonoBehaviour
         scaleFactorInputField.text = GodSettings.GetDronePositionScaleFactorText();
         biasInputField.text = GodSettings.GetDronePositionBiasText();
         joystickSensitivitySlider.value = GodSettings.GetJoystickSensitivity();
+        ballSpeedSlider.value = GodSettings.GetBallSpeed();
     }
 
     public void ShowMainMenu()
@@ -31,6 +33,7 @@ public class GameSettingsManager : MonoBehaviour
         GodSettings.TrySetDronePositionBias(biasInputField.text);
         GodSettings.TrySetDronePositionScaleFactor(scaleFactorInputField.text);
         GodSettings.TrySetJoystickSensitivity((int) joystickSensitivitySlider.value);
+        GodSettings.TrySetBallSpeed(ballSpeedSlider.value);
     }
 
     [UsedImplicitly]

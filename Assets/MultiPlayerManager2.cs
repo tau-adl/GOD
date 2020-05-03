@@ -46,16 +46,23 @@ public class MultiPlayerManager2 : MonoBehaviour
     private GodUpdateDatagram _lastIncomingGodUpdate;
     private UserDialog _userDialog;
     private int _statusFlags;
-    private float _ballForceX = 50.0F;
+    private float _ballSpeed = GodSettings.Defaults.BallSpeed;
     private volatile bool _gameStarted;
-    private bool _demoMode;
+    private bool _demoMode = GodSettings.Defaults.DemoMode;
     private bool _midAirStagePositioned;
-    private GameObject _targetScaleAdapter;
     private Vector3 _dronePositionScaleFactor;
     private Vector3 _dronePositionBias;
     private byte _joystickSensitivity;
     private Vector3 _droneLimitsMin;
     private Vector3 _droneLimitsMax;
+    private Vector3 _ballLimitsMin;
+    private Vector3 _ballLimitsMax;
+    private Transform _leftWall;
+    private Transform _rightWall;
+    private Transform _topPlane;
+    private Transform _bottomPlane;
+    private float _stickerPositionRadius = 20;
+    private float _ballMovementSmoothingFactor = GodSettings.Defaults.BallMovementSmoothingFactor;
 
     private readonly byte[] _godUpdateTxBuffer = new byte[GodUpdateDatagram.MaxSize];
 
@@ -109,7 +116,6 @@ public class MultiPlayerManager2 : MonoBehaviour
         VuforiaARController.Instance.RegisterVuforiaStartedCallback(OnVuforiaStarted);
         Score = new GodScore();
         // initialize private fields:
-        _ballForceX = PlayerPrefs.GetFloat("BallForceX", 5.0F);
         _multiPlayerConnection = FindObjectOfType<GodMultiPlayerConnection>();
         _multiPlayerConnection.SetDatagramReceivedCallback(MultiPlayerConnection_DatagramReceived);
         _multiPlayerConnection.StatusChanged += MultiPlayerConnection_StatusChanged;
@@ -121,7 +127,6 @@ public class MultiPlayerManager2 : MonoBehaviour
         _initialAugmentedDronePosition = augmentedDrone.transform.localPosition;
         _initialRealDronePositionProviderPosition = realDronePositionProvider.transform.position;
         _initialBallPosition = ball.transform.localPosition;
-        _targetScaleAdapter = droneStickerTarget.transform.GetChild(0).gameObject;
         _droneTelemetry = FindObjectOfType<DroneTelemetry>();
         _droneTelemetry.StatusChanged += DroneTelemetry_StatusChanged;
         _droneControl = FindObjectOfType<DroneControl>();
@@ -147,12 +152,17 @@ public class MultiPlayerManager2 : MonoBehaviour
         _dronePositionScaleFactor = GodSettings.GetDronePositionScaleFactor();
         _dronePositionBias = GodSettings.GetDronePositionBias();
         _joystickSensitivity = GodSettings.GetJoystickSensitivity();
+        _ballSpeed = GodSettings.GetBallSpeed();
+        _ballMovementSmoothingFactor = GodSettings.GetBallMovementSmoothingFactor();
         // compute static fields:
+        FindPlaygroundWalls();
         ComputeDroneLimits();
+        ComputeBallLimits();
         // enable networking:
         Debug.Log("Starting discovery");
         _discovery.StartDiscovery();
         // initialize GUI mode:
+        Physics.gravity = new Vector3(0,GodSettings.GetGravity(),0);
         OnRepositionStageButtonClicked();
         InvokeRepeating("UpdateGameStatus", 0, 1);
     }
@@ -167,26 +177,36 @@ public class MultiPlayerManager2 : MonoBehaviour
             _droneControl.StickData.Roll = (sbyte)(_joystickSensitivity * leftJoystick.outputVector.y);
             _droneControl.StickData.Pitch = (sbyte)(-_joystickSensitivity * rightJoystick.outputVector.x);
             _droneControl.StickData.Throttle = (sbyte) (_joystickSensitivity * rightJoystick.outputVector.y);
-            var stickerPosition = _dronePositionBias + GetNormalizedStickerTargetPosition();
             // update real-drone position:
-            var z = stickerPosition.z;
-            // limit z value:
-            if (Math.Abs(z) > 20)
-                z = Math.Sign(z) * 20;
-            stickerPosition = new Vector3(stickerPosition.x, stickerPosition.y, 0);
-            realDrone.transform.localPosition = EnforceDroneLimits(_initialRealDronePosition + stickerPosition);
-            playground.transform.localPosition = new Vector3(
-                playground.transform.localPosition.x,
-                playground.transform.localPosition.y,
-                _initialPlaygroundPosition.z + z);
+            var stickerPosition = _dronePositionBias + GetNormalizedStickerTargetPosition();
+            var dronePositionDelta = new Vector3(0, stickerPosition.y, 0);
+            var playgroundPositionDelta = new Vector3(stickerPosition.x, 0, stickerPosition.z);
+            realDrone.transform.localPosition = EnforceDroneLimits(_initialRealDronePosition + dronePositionDelta);
+            playground.transform.localPosition = _initialPlaygroundPosition + playgroundPositionDelta;
             // send update message:
             SendGodUpdate();
             // process update message:
             ProcessLastGodUpdate();
+            // make sure the ball is still inside the playground:
+            ball.transform.localPosition = EnforceBallLimits(ball.transform.localPosition);
         }
         catch (Exception ex)
         {
             Debug.LogError(ex);
+        }
+    }
+
+    [UsedImplicitly]
+    private void LateUpdate()
+    {
+        // maintain constant ball speed:
+        if (!_ballRigidbody.isKinematic)
+        {
+            _ballRigidbody = ball.GetComponent<Rigidbody>();
+            var currentVelocity = _ballRigidbody.velocity;
+            var targetVelocity = currentVelocity.normalized * _ballSpeed;
+            _ballRigidbody.velocity = Vector3.Lerp(
+                currentVelocity, targetVelocity, Time.deltaTime * _ballMovementSmoothingFactor);
         }
     }
 
@@ -252,7 +272,6 @@ public class MultiPlayerManager2 : MonoBehaviour
                     // allow ball motion:
                     _ballRigidbody.isKinematic = false;
                     _ballRigidbody.useGravity = true;
-                    _ballRigidbody.AddForce(new Vector3(_ballForceX, 10F, 0));
                 }
             }
         }
@@ -502,64 +521,80 @@ public class MultiPlayerManager2 : MonoBehaviour
         }
     }
 
-    private void ComputeDroneLimits()
+    private void FindPlaygroundWalls()
     {
-        var droneSize = realDrone.transform.localScale;
-        Transform leftWall = default;
-        Transform rightWall = default;
-        Transform topPlane = default;
-        Transform bottomPlane = default;
         foreach (Transform child in playground.transform)
         {
             switch (child.name)
             {
                 case "LeftWall":
-                    leftWall = child;
+                    _leftWall = child;
                     break;
                 case "RightWall":
-                    rightWall = child;
+                    _rightWall = child;
                     break;
                 case "TopPlane":
-                    topPlane = child;
+                    _topPlane = child;
                     break;
                 case "BottomPlane":
-                    bottomPlane = child;
+                    _bottomPlane = child;
                     break;
             }
         }
+        if (new[] {_leftWall, _rightWall, _topPlane, _bottomPlane}.Any(plane => plane == null))
+            Debug.LogError("Could not find all playground walls.");
+    }
 
-        if (new[] {leftWall, rightWall, topPlane, bottomPlane}.Any(plane => plane == null))
-        {
-            Debug.LogError("Could not compute drone limits - missing planes.");
-            return;
-        }
-
-        var minX = leftWall.localPosition.x + droneSize.x / 2;
-        var maxX = rightWall.localPosition.x - droneSize.x / 2;
-        var minY = bottomPlane.localPosition.y + droneSize.y / 2;
-        var maxY = topPlane.localPosition.y - droneSize.y / 2;
+    private void ComputeDroneLimits()
+    {
+        var droneSize = realDrone.transform.localScale;
+        var minX = _leftWall.localPosition.x + droneSize.x / 2;
+        var maxX = _rightWall.localPosition.x - droneSize.x / 2;
+        var minY = _bottomPlane.localPosition.y + droneSize.y / 2;
+        var maxY = _topPlane.localPosition.y - droneSize.y / 2;
         _droneLimitsMin = new Vector3(minX, minY, float.NegativeInfinity);
         _droneLimitsMax = new Vector3(maxX, maxY, float.PositiveInfinity);
     }
 
+    private void ComputeBallLimits()
+    {
+        var ballSize = ball.transform.localScale;
+        var minX = _leftWall.localPosition.x + ballSize.x / 2;
+        var maxX = _rightWall.localPosition.x - ballSize.x / 2;
+        var minY = _bottomPlane.localPosition.y + ballSize.y / 2;
+        var maxY = _topPlane.localPosition.y - ballSize.y / 2;
+        _ballLimitsMin = new Vector3(minX, minY, float.NegativeInfinity);
+        _ballLimitsMax = new Vector3(maxX, maxY, float.PositiveInfinity);
+    }
+
+    private static Vector3 EnforceLimits(Vector3 position, Vector3 min, Vector3 max)
+    {
+        var x = position.x;
+        var y = position.y;
+        var z = position.z;
+        if (position.x < min.x)
+            x = min.x;
+        else if (position.x > max.x)
+            x = max.x;
+        if (position.y < min.y)
+            y = min.y;
+        else if (position.y > max.y)
+            y = max.y;
+        if (position.z < min.z)
+            z = min.z;
+        else if (position.z > max.z)
+            z = max.z;
+        return new Vector3(x, y, z);
+    }
+
+    private Vector3 EnforceBallLimits(Vector3 ballPosition)
+    {
+        return EnforceLimits(ballPosition, _ballLimitsMin, _ballLimitsMax);
+    }
+
     private Vector3 EnforceDroneLimits(Vector3 dronePosition)
     {
-        var x = dronePosition.x;
-        var y = dronePosition.y;
-        var z = dronePosition.z;
-        if (dronePosition.x < _droneLimitsMin.x)
-            x = _droneLimitsMin.x;
-        else if (dronePosition.x > _droneLimitsMax.x)
-            x = _droneLimitsMax.x;
-        if (dronePosition.y < _droneLimitsMin.y)
-            y = _droneLimitsMin.y;
-        else if (dronePosition.y > _droneLimitsMax.y)
-            y = _droneLimitsMax.y;
-        if (dronePosition.z < _droneLimitsMin.z)
-            z = _droneLimitsMin.z;
-        else if (dronePosition.z > _droneLimitsMax.z)
-            z = _droneLimitsMax.z;
-        return new Vector3(x, y, z);
+        return EnforceLimits(dronePosition, _droneLimitsMin, _droneLimitsMax);
     }
 
     private void ProcessLastGodUpdate()
@@ -567,7 +602,7 @@ public class MultiPlayerManager2 : MonoBehaviour
         if (_demoMode)
         {
             var stickerPosition = _dronePositionBias + GetNormalizedStickerTargetPosition();
-            stickerPosition = new Vector3(stickerPosition.x, stickerPosition.y, 0);
+            stickerPosition = new Vector3(0, stickerPosition.y, 0);
             augmentedDrone.transform.localPosition = EnforceDroneLimits(_initialAugmentedDronePosition + stickerPosition);
             return;
         }
@@ -605,6 +640,13 @@ public class MultiPlayerManager2 : MonoBehaviour
         var x = (realDronePositionProvider.transform.position.x - _initialRealDronePositionProviderPosition.x);
         var y = (realDronePositionProvider.transform.position.y - _initialRealDronePositionProviderPosition.y);
         var z = (realDronePositionProvider.transform.position.z - _initialRealDronePositionProviderPosition.z);
+        // limit sticker position coordinates:
+        if (Math.Abs(x) > _stickerPositionRadius)
+            x = Math.Sign(x) * _stickerPositionRadius;
+        if (Math.Abs(y) > _stickerPositionRadius)
+            y = Math.Sign(y) * _stickerPositionRadius;
+        if (Math.Abs(z) > _stickerPositionRadius)
+            z = Math.Sign(z) * _stickerPositionRadius;
         return new Vector3(x * _dronePositionScaleFactor.x, y * _dronePositionScaleFactor.y, z * _dronePositionScaleFactor.z);
     }
 
@@ -612,7 +654,7 @@ public class MultiPlayerManager2 : MonoBehaviour
     {
         try
         {
-            var dronePosition = _initialRealDronePosition + GetNormalizedStickerTargetPosition();
+            var dronePosition = realDrone.transform.localPosition;
             var datagram = new GodUpdateDatagram
             {
                 BallPosition = ball.transform.localPosition,

@@ -11,14 +11,20 @@ public static class GodSettings
         public const string DronePositionBias = "DronePositionBias";
         public const string DemoMode = "DemoMode";
         public const string JoystickSensitivity = "JoystickSensitivity";
+        public const string Gravity = "Gravity";
+        public const string BallSpeed = "BallSpeed";
+        public const string BallMovementSmoothingFactor = "BallMovementSmoothingFactor";
     }
 
     public static class Defaults
     {
         public static readonly Vector3 DronePositionScaleFactor = new Vector3(1.5F, 1.5F, 1);
         public static readonly Vector3 DronePositionBias = new Vector3(0, 0, 0.5F);
-        public static readonly bool DemoMode = false;
-        public static readonly byte JoystickSensitivity = 50;
+        public const bool DemoMode = false;
+        public const byte JoystickSensitivity = 50;
+        public const float Gravity = -9.81F;
+        public const float BallSpeed = 10;
+        public const float BallMovementSmoothingFactor = 1;
     }
 
     #endregion Constants
@@ -227,6 +233,86 @@ public static class GodSettings
     {
         return TryParsePercent(text, out var value) &&
                TrySetJoystickSensitivity(value);
+    }
+
+    public static float GetGravity()
+    {
+        return PlayerPrefs.GetFloat(Keys.Gravity, Defaults.Gravity);
+    }
+
+    public static string GetGravityText()
+    {
+        var value = GetGravity();
+        return value.ToString("F2");
+    }
+
+    public static void SetGravity(float gravity)
+    {
+        PlayerPrefs.SetFloat(Keys.Gravity, gravity);
+    }
+
+    public static bool TrySetGravity(string text)
+    {
+        if (float.TryParse(text, out var gravity))
+        {
+            SetGravity(gravity);
+            return true;
+        }
+        return false;
+    }
+
+    public static float GetBallMovementSmoothingFactor()
+    {
+        return PlayerPrefs.GetFloat(Keys.BallMovementSmoothingFactor, Defaults.BallMovementSmoothingFactor);
+    }
+
+    public static string GetBallMovementSmoothingFactorText()
+    {
+        var factor = GetBallMovementSmoothingFactor();
+        return factor.ToString("F2");
+    }
+
+    public static bool TrySetBallMovementSmoothingFactor(float factor)
+    {
+        if (factor > 0)
+        {
+            PlayerPrefs.SetFloat(Keys.BallMovementSmoothingFactor, factor);
+            return true;
+        }
+        return false;
+    }
+
+    public static bool TrySetBallMovementSmoothingFactor(string text)
+    {
+        return float.TryParse(text, out var factor) &&
+               TrySetBallMovementSmoothingFactor(factor);
+    }
+
+    public static float GetBallSpeed()
+    {
+        return PlayerPrefs.GetFloat(Keys.BallSpeed, Defaults.BallSpeed);
+    }
+
+    public static string GetBallSpeedText()
+    {
+        var speed = GetBallSpeed();
+        return speed.ToString("F2");
+    }
+
+    public static bool TrySetBallSpeed(float speed)
+    {
+        if (speed > 0)
+        {
+            PlayerPrefs.SetFloat(Keys.BallSpeed, speed);
+            return true;
+        }
+        return false;
+    }
+
+    public static bool TrySetBallSpeed(string text)
+    {
+        return float.TryParse(text, out var speed) &&
+               TrySetBallSpeed(speed);
     }
 
     #endregion Public Methods
