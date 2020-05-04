@@ -8,6 +8,7 @@ using UnityEngine;
 using UnityEngine.SceneManagement;
 using Vuforia;
 // ReSharper disable MergeConditionalExpression
+// ReSharper disable UseNullPropagation
 
 
 public class MultiPlayerManager2 : MonoBehaviour
@@ -22,7 +23,6 @@ public class MultiPlayerManager2 : MonoBehaviour
     public GameObject ball;
     public GameObject readyButton;
     public UnityEngine.UI.Text scoreText;
-    public GameObject droneStickerTarget;
     public GameObject midAirPositioner;
     public GameObject repositionStageButton;
     public GameObject menuButton;
@@ -32,6 +32,7 @@ public class MultiPlayerManager2 : MonoBehaviour
 
     #region Private Fields
 
+    private TelloSdkClient _droneClient;
     private StatusPanelManager _statusPanelManager;
     private Rigidbody _ballRigidbody;
     private Vector3 _initialRealDronePosition;
@@ -97,6 +98,9 @@ public class MultiPlayerManager2 : MonoBehaviour
             _multiPlayerConnection.SetDatagramReceivedCallback(null);
             _multiPlayerConnection.StatusChanged -= MultiPlayerConnection_StatusChanged;
         }
+
+        if (_droneClient != null)
+            _droneClient.Dispose();
         if (_discovery != null)
             _discovery.SetPartnerDiscoveredCallback(null);
         if (_droneTelemetry != null)
@@ -131,8 +135,6 @@ public class MultiPlayerManager2 : MonoBehaviour
         _droneTelemetry.StatusChanged += DroneTelemetry_StatusChanged;
         _droneControl = FindObjectOfType<DroneControl>();
         _droneControl.StatusChanged += DroneControl_StatusChanged;
-        //_droneCommunication = FindObjectOfType<DroneCommunication>();
-        //_droneCommunication.StatusChanged += DroneTelemetry_StatusChanged;
         _statusPanelManager = FindObjectOfType<StatusPanelManager>();
         ball.GetComponent<BallBehaviour>().CollisionEnter += Ball_CollisionEnter;
         _userDialog = FindObjectOfType<UserDialog>();
@@ -164,6 +166,30 @@ public class MultiPlayerManager2 : MonoBehaviour
         // initialize GUI mode:
         Physics.gravity = new Vector3(0,GodSettings.GetGravity(),0);
         OnRepositionStageButtonClicked();
+        try
+        {
+            var droneHostName = PlayerPrefs.GetString("DroneHostName", TelloSdkClient.DefaultHostName);
+            _droneClient = new TelloSdkClient(droneHostName, TelloSdkClientFlags.ControlAndTelemetry);
+            _droneTelemetry.Connect(_droneClient);
+            _droneControl.Connect(_droneClient);
+            _ = _droneClient.StartAsync();
+        }
+        catch (Exception ex)
+        {
+            _userDialog.HeaderText = "Can't Connect To Drone";
+            _userDialog.BodyText =
+                "Connection with drone could not be established.\n" +
+                "Make sure you are connected to the same Wifi network " +
+                "and that drone settings are correct.\n" +
+                "Details: " + ex.Message;
+            _userDialog.ShowCancelButton = false;
+            _userDialog.ShowOkButton = true;
+            _userDialog.IsVisible = true;
+            return;
+        }
+
+        VuforiaManager.Instance.Init();
+
         InvokeRepeating("UpdateGameStatus", 0, 1);
     }
 
@@ -287,6 +313,7 @@ public class MultiPlayerManager2 : MonoBehaviour
 
     private void UserDialog_OkButtonClick(object sender, EventArgs e)
     {
+        ShowMenu();
     }
     
     [UsedImplicitly]
@@ -411,11 +438,13 @@ public class MultiPlayerManager2 : MonoBehaviour
         menuButton.SetActive(true);
     }
 
+    [UsedImplicitly]
     public void OnStopButtonClicked()
     {
         StopGame();
     }
 
+    [UsedImplicitly]
     public void OnReadyButtonClicked()
     {
         SetUserReady();
@@ -601,9 +630,7 @@ public class MultiPlayerManager2 : MonoBehaviour
     {
         if (_demoMode)
         {
-            var stickerPosition = _dronePositionBias + GetNormalizedStickerTargetPosition();
-            stickerPosition = new Vector3(0, stickerPosition.y, 0);
-            augmentedDrone.transform.localPosition = EnforceDroneLimits(_initialAugmentedDronePosition + stickerPosition);
+            augmentedDrone.transform.localPosition = EnforceDroneLimits(realDrone.transform.localPosition);
             return;
         }
 
@@ -613,7 +640,7 @@ public class MultiPlayerManager2 : MonoBehaviour
 
         // update drone position:
         if (godUpdate.DronePosition.HasValue)
-            augmentedDrone.transform.localPosition = godUpdate.DronePosition.Value;
+            augmentedDrone.transform.localPosition = EnforceDroneLimits(godUpdate.DronePosition.Value);
 
         if (!_multiPlayerConnection.IsMaster)
         {
@@ -624,13 +651,14 @@ public class MultiPlayerManager2 : MonoBehaviour
                 scoreText.text = $"{Score.MyScore}/{Score.TheirScore}";
 
                 // update ball position and speed according to master:
+                /*
                 if (godUpdate.BallPosition.HasValue && godUpdate.BallVelocity.HasValue)
                 {
                     _ballRigidbody.isKinematic = true;
                     ball.transform.localPosition = godUpdate.BallPosition.Value;
                     _ballRigidbody.isKinematic = false;
                     _ballRigidbody.velocity = godUpdate.BallVelocity.Value;
-                }
+                }*/
             }
         }
     }
@@ -654,12 +682,11 @@ public class MultiPlayerManager2 : MonoBehaviour
     {
         try
         {
-            var dronePosition = realDrone.transform.localPosition;
             var datagram = new GodUpdateDatagram
             {
                 BallPosition = ball.transform.localPosition,
                 BallVelocity = _ballRigidbody.velocity,
-                DronePosition = dronePosition,
+                DronePosition = realDrone.transform.localPosition,
                 Score = Score,
                 GameStatus = GameStatus
             };

@@ -8,6 +8,11 @@ using UnityEngine;
 
 public class DroneControl : MonoBehaviour
 {
+    private TelloSdkClient _client;
+
+    public event EventHandler<ConnectionStatusChangedEventArgs> StatusChanged;
+
+    /*
     #region Fields
 
     private TelloSdkControlChannel _controlChannel;
@@ -16,7 +21,7 @@ public class DroneControl : MonoBehaviour
 
     #region Events
 
-    public event EventHandler<ConnectionStatusChangedEventArgs> StatusChanged;
+    
     public event EventHandler SerialNumberChanged;
 
     #endregion Events
@@ -26,15 +31,15 @@ public class DroneControl : MonoBehaviour
     public string DroneHostName { get; private set; }
 
     public ConnectionStatus Status => _controlChannel.Status;
-
+    */
     public TelloSdkStickData StickData
     {
-        get => _controlChannel.StickData;
-        set => _controlChannel.StickData = value;
+        get => _client.StickData;
+        set => _client.StickData = value;
     }
-
+    /*
     #endregion Properties
-
+    
     #region MonoBehaviour
 
     [UsedImplicitly]
@@ -109,67 +114,41 @@ public class DroneControl : MonoBehaviour
         if (handler != null)
             handler.Invoke(this, e);
     }
+    */
 
     public async Task<bool> TakeOffAsync()
     {
-        if (_controlChannel == null)
-            throw new InvalidOperationException("Not connected");
-        return await _controlChannel.TakeOffAsync();
+        return await _client.TakeOffAsync();
+        //if (_controlChannel == null)
+        //    throw new InvalidOperationException("Not connected");
+        //return await _controlChannel.TakeOffAsync();
     }
 
     public async Task<bool> LandAsync()
     {
-        if (_controlChannel == null)
-            throw new InvalidOperationException("Not connected");
-        return await _controlChannel.LandAsync();
+        return await _client.LandAsync();
+        //if (_controlChannel == null)
+        //    throw new InvalidOperationException("Not connected");
+        //return await _controlChannel.LandAsync();
     }
 
-    /// <summary>
-    /// Configure the drone to operate as the wifi station.
-    /// i.e. the drone will connect to the specified wifi network.
-    /// </summary>
-    /// <remarks>
-    /// This is the swarm mode of the drone.
-    /// In this mode only the SDK API can be used.
-    /// Video streaming from the drone (streamon) is not supported in this mode.
-    /// In order to reset the drone to the default (access-point) mode, press the power
-    /// button for five seconds while the drone is turned-on.
-    /// </remarks>
-    /// <param name="ssid">Drone wifi network SSID</param>
-    /// <param name="password">Drone wifi network password</param>
-    /// <returns>True for success; False otherwise.</returns>
-    public async Task<bool> EnableWifiStationMode(string ssid, string password)
+    public void Connect(TelloSdkClient client)
     {
-        if (_controlChannel == null)
-            throw new InvalidOperationException("Not started");
-        return await _controlChannel.EnableWifiStationMode(ssid, password);
+        _client = client;
+        if (_client != null)
+            _client.StatusChanged += ClientOnStatusChanged;
     }
 
-    /// <summary>
-    /// Configure the drone to operate as the wifi access-point.
-    /// i.e. the drone will create a wifi network of its own to which the phone should connect.
-    /// </summary>
-    /// <remarks>
-    /// This is the default operation mode of the drone.
-    /// In this mode both the closed-API and the SDK can be used.
-    /// Video streaming from the drone is also supported in this mode.
-    /// </remarks>
-    /// <param name="ssid">Drone wifi network SSID</param>
-    /// <param name="password">Drone wifi network password</param>
-    /// <returns>True for success; False otherwise.</returns>
-    public async Task<bool> EnableWifiAccessPointMode(string ssid, string password)
+    private void OnDestroy()
     {
-        if (_controlChannel == null)
-            throw new InvalidOperationException("Not started");
-        return await _controlChannel.EnableWifiAccessPointMode(ssid, password);
+        if (_client != null)
+            _client.StatusChanged -= ClientOnStatusChanged;
     }
 
-    public void Connect(string droneHostName = null)
+    private void ClientOnStatusChanged(object sender, ConnectionStatusChangedEventArgs e)
     {
-        if (droneHostName != null)
-            DroneHostName = droneHostName;
-        _controlChannel.Connect(DroneHostName);
+        var handler = StatusChanged;
+        if (handler != null)
+            handler.Invoke(this, e);
     }
-
-    #endregion Methods
 }

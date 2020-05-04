@@ -1,12 +1,21 @@
 ﻿using System;
 using JetBrains.Annotations;
 using UnityEngine;
+// ReSharper disable MergeConditionalExpression
 
 // Some C# features are not supported in MonoBehaviour scripts:
 // ReSharper disable UseNullPropagation
 
 public sealed class DroneTelemetry : MonoBehaviour
 {
+    #region Events
+
+    public event EventHandler<ConnectionStatusChangedEventArgs> StatusChanged;
+
+    #endregion Events
+
+    /*
+
     #region Constants
 
     public const int TelemetryHistorySize = 1;
@@ -19,16 +28,18 @@ public sealed class DroneTelemetry : MonoBehaviour
 
     #endregion Fields
 
-    #region Events
-
-    public event EventHandler<ConnectionStatusChangedEventArgs> StatusChanged;
-
-    #endregion Events
-
     #region Properties
 
-    public TelloSdkTelemetry[] TelemetryHistory { get; private set; }
-    public TelloSdkTelemetry Telemetry => TelemetryHistory[0];
+    */
+
+    private static readonly TelloSdkTelemetry[] EmptyTelemetryHistory = new TelloSdkTelemetry[0];
+
+    public TelloSdkTelemetry[] TelemetryHistory => _client != null ? _client.TelemetryHistory : EmptyTelemetryHistory;
+    public TelloSdkTelemetry Telemetry => _client != null ? _client.Telemetry : null;
+
+    public ConnectionStatus Status => _client != null ? _client.Status : ConnectionStatus.Offline;
+
+    /*
     public string DroneHostName { get; private set; }
 
     public ConnectionStatus Status => _telemetryChannel.Status;
@@ -106,4 +117,27 @@ public sealed class DroneTelemetry : MonoBehaviour
     }
 
     #endregion Methods
+    */
+    private TelloSdkClient _client;
+
+
+    public void Connect(TelloSdkClient client)
+    {
+        _client = client;
+        if (_client != null)
+            _client.StatusChanged += ClientOnStatusChanged;
+    }
+
+    private void OnDestroy()
+    {
+        if (_client != null)
+            _client.StatusChanged -= ClientOnStatusChanged;
+    }
+
+    private void ClientOnStatusChanged(object sender, ConnectionStatusChangedEventArgs e)
+    {
+        var handler = StatusChanged;
+        if (handler != null)
+            handler.Invoke(this, e);
+    }
 }

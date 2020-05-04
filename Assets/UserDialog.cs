@@ -19,8 +19,13 @@ public class UserDialog : MonoBehaviour
 
     #region Private Fields
 
-    private TMP_Text _headerText;
-    private TMP_Text _bodyText;
+    private TMP_Text _header;
+    private TMP_Text _body;
+
+    private string _headerText;
+    private string _bodyText;
+    private bool _showOkButton;
+    private bool _showCancelButton;
 
     #endregion Private Fields
 
@@ -36,36 +41,52 @@ public class UserDialog : MonoBehaviour
 
     public string HeaderText
     {
-        get => _headerText.text;
-        set => _headerText.text = value;
+        get => _headerText;
+        set
+        {
+            _headerText = value;
+            if (_header != null)
+                _header.text = value;
+        }
     }
 
     public string BodyText
     {
-        get => _bodyText.text;
-        set => _bodyText.text = value;
+        get => _bodyText;
+        set
+        {
+            _bodyText = value;
+            if (_body != null)
+                _body.text = value;
+        }
     }
 
     public bool ShowOkButton
     {
-        get => okButton.activeSelf;
-        set => okButton.SetActive(value);
+        get => _showOkButton;
+        set
+        {
+            _showOkButton = value;
+            if (okButton != null)
+                okButton.SetActive(value);
+        }
     }
 
     public bool ShowCancelButton
     {
-        get => cancelButton.activeSelf;
-        set => cancelButton.SetActive(value);
+        get => _showCancelButton;
+        set
+        {
+            _showCancelButton = value; 
+            if (cancelButton != null)
+                cancelButton.SetActive(value);
+        }
     }
 
     public bool IsVisible
     {
         get => gameObject.activeSelf;
-        set
-        {
-            if (IsVisible != value)
-                gameObject.SetActive(value);
-        }
+        set => gameObject.SetActive(value);
     }
 
     #endregion Properties
@@ -75,8 +96,12 @@ public class UserDialog : MonoBehaviour
     [UsedImplicitly]
     private void Awake()
     {
-        _headerText = dialogHeader.GetComponentInChildren<TMP_Text>();
-        _bodyText = dialogBody.GetComponentInChildren<TMP_Text>();
+        _header = dialogHeader.GetComponentInChildren<TMP_Text>();
+        _body = dialogBody.GetComponentInChildren<TMP_Text>();
+        _header.text = _headerText;
+        _body.text = _bodyText;
+        cancelButton.SetActive(ShowCancelButton);
+        okButton.SetActive(ShowOkButton);
     }
 
     #endregion MonoBehaviour
