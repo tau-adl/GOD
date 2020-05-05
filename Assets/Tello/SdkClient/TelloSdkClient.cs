@@ -48,7 +48,8 @@ public class TelloSdkClient
     private TelloSdkTelemetry[] _telemetryHistory = new TelloSdkTelemetry[1 + TelemetryHistorySize];
     private TelloSdkStickData _stickData = new TelloSdkStickData();
     private bool _enableMissionMode;
-    private ConnectionStatus _status;
+    private ConnectionStatus _status = ConnectionStatus.Offline;
+    private IPEndPoint _droneEndPoint;
 
     #endregion Private Fields
 
@@ -142,14 +143,14 @@ public class TelloSdkClient
         // create control and telemetry channels:
         if (_clientFlags.HasFlag(TelloSdkClientFlags.Control))
         {
-            _commandChannel = new UdpClient() { ExclusiveAddressUse = false };
+            _commandChannel = new UdpClient() {ExclusiveAddressUse = false};
             // patch for Unity: multiple listening UDP clients don't work.
             var controlChannelPort =
                 _clientFlags.HasFlag(TelloSdkClientFlags.Telemetry)
-                ? TelemetryUdpPort
-                : ControlUdpPort;
-                _commandChannel.Client.Bind(new IPEndPoint(localIPAddress, controlChannelPort));
-            _commandChannel.Connect(new IPEndPoint(telloIPAddress, ControlUdpPort));
+                    ? TelemetryUdpPort
+                    : ControlUdpPort;
+            _commandChannel.Client.Bind(new IPEndPoint(IPAddress.Any, controlChannelPort));
+            _droneEndPoint = new IPEndPoint(telloIPAddress, ControlUdpPort);
             _telemetryChannel = _commandChannel;
             Status = ConnectionStatus.Connected;
         }
@@ -175,8 +176,8 @@ public class TelloSdkClient
         {
             if (_stickDataTimer != null)
                 _stickDataTimer.Dispose();
-            //if (_telemetryChannel != null)
-            //    _telemetryChannel.Dispose();
+            if (_telemetryChannel != null)
+                _telemetryChannel.Dispose();
             if (_commandChannel != null)
                 _commandChannel.Dispose();
             if (_cts != null)
@@ -200,7 +201,7 @@ public class TelloSdkClient
         do
         {
             // send the command to the drone:
-            await _commandChannel.SendAsync(bytes, bytes.Length);
+            await _commandChannel.SendAsync(bytes, bytes.Length, _droneEndPoint);
             // wait for a response:
             if (recvTask.Wait(responseTimeoutMS, _cts.Token))
                 return recvTask.Result;
@@ -390,7 +391,7 @@ public class TelloSdkClient
             var stickData = _stickData;
             var stickCommand = $"rc {stickData.Roll} {stickData.Pitch} {stickData.Throttle} {stickData.Yaw}";
             var bytes = Encoding.ASCII.GetBytes(stickCommand);
-            var task = _commandChannel.SendAsync(bytes, bytes.Length);
+            var task = _commandChannel.SendAsync(bytes, bytes.Length, _droneEndPoint);
             task.Wait(_cts.Token);
         }
         catch (ObjectDisposedException)

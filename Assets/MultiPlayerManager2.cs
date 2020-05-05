@@ -60,8 +60,8 @@ public class MultiPlayerManager2 : MonoBehaviour
     private Vector3 _ballLimitsMax;
     private Transform _leftWall;
     private Transform _rightWall;
-    private Transform _topPlane;
-    private Transform _bottomPlane;
+    private Transform _ceiling;
+    private Transform _floor;
     private float _stickerPositionRadius = 20;
     private float _ballMovementSmoothingFactor = GodSettings.Defaults.BallMovementSmoothingFactor;
 
@@ -187,9 +187,6 @@ public class MultiPlayerManager2 : MonoBehaviour
             _userDialog.IsVisible = true;
             return;
         }
-
-        VuforiaManager.Instance.Init();
-
         InvokeRepeating("UpdateGameStatus", 0, 1);
     }
 
@@ -226,11 +223,17 @@ public class MultiPlayerManager2 : MonoBehaviour
     private void LateUpdate()
     {
         // maintain constant ball speed:
-        if (!_ballRigidbody.isKinematic)
+        if (_gameStarted)
         {
             _ballRigidbody = ball.GetComponent<Rigidbody>();
             var currentVelocity = _ballRigidbody.velocity;
             var targetVelocity = currentVelocity.normalized * _ballSpeed;
+            if (Math.Abs(targetVelocity.x) < 1)
+                targetVelocity.x = Math.Sign(targetVelocity.x);
+            if (Math.Abs(targetVelocity.y) < 1)
+                targetVelocity.y = Math.Sign(targetVelocity.y);
+            //targetVelocity.z = 0;
+            //targetVelocity = targetVelocity.normalized * _ballSpeed;
             _ballRigidbody.velocity = Vector3.Lerp(
                 currentVelocity, targetVelocity, Time.deltaTime * _ballMovementSmoothingFactor);
         }
@@ -562,15 +565,15 @@ public class MultiPlayerManager2 : MonoBehaviour
                 case "RightWall":
                     _rightWall = child;
                     break;
-                case "TopPlane":
-                    _topPlane = child;
+                case "Ceiling":
+                    _ceiling = child;
                     break;
-                case "BottomPlane":
-                    _bottomPlane = child;
+                case "Floor":
+                    _floor = child;
                     break;
             }
         }
-        if (new[] {_leftWall, _rightWall, _topPlane, _bottomPlane}.Any(plane => plane == null))
+        if (new[] {_leftWall, _rightWall, _ceiling, _floor}.Any(plane => plane == null))
             Debug.LogError("Could not find all playground walls.");
     }
 
@@ -579,8 +582,8 @@ public class MultiPlayerManager2 : MonoBehaviour
         var droneSize = realDrone.transform.localScale;
         var minX = _leftWall.localPosition.x + droneSize.x / 2;
         var maxX = _rightWall.localPosition.x - droneSize.x / 2;
-        var minY = _bottomPlane.localPosition.y + droneSize.y / 2;
-        var maxY = _topPlane.localPosition.y - droneSize.y / 2;
+        var minY = _floor.localPosition.y + droneSize.y / 2;
+        var maxY = _ceiling.localPosition.y - droneSize.y / 2;
         _droneLimitsMin = new Vector3(minX, minY, float.NegativeInfinity);
         _droneLimitsMax = new Vector3(maxX, maxY, float.PositiveInfinity);
     }
@@ -590,10 +593,10 @@ public class MultiPlayerManager2 : MonoBehaviour
         var ballSize = ball.transform.localScale;
         var minX = _leftWall.localPosition.x + ballSize.x / 2;
         var maxX = _rightWall.localPosition.x - ballSize.x / 2;
-        var minY = _bottomPlane.localPosition.y + ballSize.y / 2;
-        var maxY = _topPlane.localPosition.y - ballSize.y / 2;
-        _ballLimitsMin = new Vector3(minX, minY, float.NegativeInfinity);
-        _ballLimitsMax = new Vector3(maxX, maxY, float.PositiveInfinity);
+        var minY = _floor.localPosition.y + ballSize.y / 2;
+        var maxY = _ceiling.localPosition.y - ballSize.y / 2;
+        _ballLimitsMin = new Vector3(minX, minY, 0);
+        _ballLimitsMax = new Vector3(maxX, maxY, 0);
     }
 
     private static Vector3 EnforceLimits(Vector3 position, Vector3 min, Vector3 max)
@@ -648,17 +651,14 @@ public class MultiPlayerManager2 : MonoBehaviour
             if (godUpdate.Score != null && !Score.ScoreEquals(godUpdate.Score))
             {
                 Score = godUpdate.Score;
-                scoreText.text = $"{Score.MyScore}/{Score.TheirScore}";
+                scoreText.text = $"{Score.TheirScore}/{Score.MyScore}";
 
                 // update ball position and speed according to master:
-                /*
                 if (godUpdate.BallPosition.HasValue && godUpdate.BallVelocity.HasValue)
                 {
-                    _ballRigidbody.isKinematic = true;
                     ball.transform.localPosition = godUpdate.BallPosition.Value;
-                    _ballRigidbody.isKinematic = false;
                     _ballRigidbody.velocity = godUpdate.BallVelocity.Value;
-                }*/
+                }
             }
         }
     }

@@ -18,8 +18,8 @@ public static class GodSettings
 
     public static class Defaults
     {
-        public static readonly Vector3 DronePositionScaleFactor = new Vector3(1.5F, 2, 1);
-        public static readonly Vector3 DronePositionBias = new Vector3(1,0,0);
+        public static readonly Vector3 DronePositionScaleFactor = new Vector3(1.5F, 2, 1.5F);
+        public static readonly Vector3 DronePositionBias = new Vector3(-2,0,0);
         public const bool DemoMode = false;
         public const byte JoystickSensitivity = 50;
         public const float Gravity = -9.81F;
