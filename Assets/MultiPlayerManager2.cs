@@ -539,7 +539,7 @@ public class MultiPlayerManager2 : MonoBehaviour
     private void MultiPlayerConnection_StatusChanged(object sender, ConnectionStatusChangedEventArgs e)
     {
         ChangeStatusFlag(GameStatusFlags.PartnerConnected, e.NewValue == ConnectionStatus.Online);
-        if (e.NewValue < ConnectionStatus.Connecting)
+        if (e.NewValue < ConnectionStatus.Offline)
             _discovery.Reset();
     }
     private void DroneTelemetry_StatusChanged(object sender, ConnectionStatusChangedEventArgs e)

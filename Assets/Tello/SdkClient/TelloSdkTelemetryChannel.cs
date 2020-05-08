@@ -12,7 +12,7 @@ class TelloSdkTelemetryChannel
 
     public const int DefaultLocalUdpPort = 8890;
     public const int DefaultRemoteUdpPort = 8889;
-    public const int DefaultReceiveTimeoutMS = 500;
+    public new const int DefaultReceiveTimeoutMS = 500;
     private const string ChannelName = "Drone Telemetry Channel";
 
     #endregion Consants

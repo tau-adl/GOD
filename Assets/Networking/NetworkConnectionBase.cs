@@ -14,6 +14,7 @@ public abstract class NetworkConnectionBase
 
     public const int MaxSafeUdpPayloadSize = 508;
     public const int ReconnectIntervalMS = 3000;
+    public const int DefaultReceiveTimeoutMS = 500;
 
     #endregion Constants
 
@@ -21,7 +22,7 @@ public abstract class NetworkConnectionBase
 
     private Socket _socket;
     private Thread _communicationThread;
-    private int _receiveTimeoutMS;
+    private int _receiveTimeoutMS = DefaultReceiveTimeoutMS;
     private ConnectionStatus _status;
     private IPEndPoint _localEndPoint;
     private CancellationTokenSource _cts;

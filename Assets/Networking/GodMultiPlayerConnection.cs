@@ -10,6 +10,7 @@ public sealed class GodMultiPlayerConnection : MonoBehaviour
 
     public const string ConnectionName = "multi-player";
     public const int DefaultGameUdpPort = 5556;
+    public const int DefaultReceiveTimeoutMS = 3000;
 
     #endregion Constants
 
@@ -42,7 +43,10 @@ public sealed class GodMultiPlayerConnection : MonoBehaviour
     [UsedImplicitly]
     private void Awake()
     {
-        _connection = new BasicUdpConnection(ConnectionName);
+        _connection = new BasicUdpConnection(ConnectionName)
+        {
+            ReceiveTimeoutMS = DefaultReceiveTimeoutMS
+        };
         _connection.StatusChanged += ConnectionStatusChanged;
         _connection.SetDatagramReceivedCallback(_datagramReceivedCallback);
     }
