@@ -123,7 +123,7 @@ public abstract class NetworkConnectionBase
     {
         if (!IsDisposed)
         {
-            if (Status > ConnectionStatus.Disconnected)
+            if (Status > ConnectionStatus.Disconnected || Status < ConnectionStatus.Offline)
                 Status = ConnectionStatus.Disconnecting;
             var cts = _cts;
             if (cts != null)
@@ -209,18 +209,31 @@ public abstract class NetworkConnectionBase
     protected virtual void ConnectionLoop(Socket socket, CancellationToken cancel)
     {
         var buffer = CreateReceiveBuffer();
+        var receiveArgs = new SocketAsyncEventArgs();
+        var receiveComplete = new ManualResetEventSlim(false);
+        receiveArgs.SetBuffer(buffer, 0, buffer.Length);
+        receiveArgs.Completed += (s, e) => receiveComplete.Set();
         while (true)
         {
             // receive a datagram from the partner:
-            var count = socket.Receive(buffer, 0, buffer.Length, SocketFlags.None, out var socketError);
-            switch (socketError)
+            receiveComplete.Reset();
+            receiveArgs.RemoteEndPoint = RemoteIPEndPoint;
+            if (socket.ReceiveFromAsync(receiveArgs))
+            {
+                while (!receiveComplete.Wait(ReceiveTimeoutMS, cancel))
+                {
+                    Status = ConnectionStatus.Timeout;
+                }
+            }
+            switch (receiveArgs.SocketError)
             {
                 case SocketError.Success:
-                    if (count == 0)
+                    if (receiveArgs.Count == 0)
                         return; // the socket has been closed.
                     // process datagram:
                     var keepConnection =
-                        OnPacketReceived((IPEndPoint)socket.RemoteEndPoint, buffer, 0, count);
+                        OnPacketReceived((IPEndPoint)receiveArgs.RemoteEndPoint,
+                            receiveArgs.Buffer, receiveArgs.Offset, receiveArgs.Count);
                     if (keepConnection)
                     {
                         Status = ConnectionStatus.Online;
@@ -231,12 +244,12 @@ public abstract class NetworkConnectionBase
                         socket.Close();
                         return;
                     }
-                case SocketError.WouldBlock: // returned instead of TimedOut in Android.
+                case SocketError.WouldBlock: // returned instead of TimedOut on Android.
                 case SocketError.TimedOut:
                     Status = ConnectionStatus.Timeout;
                     continue;
                 default:
-                    throw new SocketException((int)socketError);
+                    throw new SocketException((int)receiveArgs.SocketError);
             }
         }
     }
@@ -352,7 +365,7 @@ public abstract class NetworkConnectionBase
                 _socket = socket;
                 Interlocked.MemoryBarrier();
                 // connect to the partner:
-                Connect(socket, RemoteIPEndPoint, cancel);
+                //RemoteIPEndPointConnect(socket, RemoteIPEndPoint, cancel);
                 cancel.ThrowIfCancellationRequested();
                 Status = ConnectionStatus.Connected;
                 // begin communication:
@@ -441,7 +454,7 @@ public abstract class NetworkConnectionBase
 
     public void Disconnect()
     {
-        if (Status > ConnectionStatus.Disconnected)
+        if (Status > ConnectionStatus.Disconnected || Status < ConnectionStatus.Offline)
             Status = ConnectionStatus.Disconnecting;
         if (_socket != null)
         {
@@ -544,9 +557,8 @@ public abstract class NetworkConnectionBase
             var socket = _socket;
             if (socket != null)
             {
-                var count = socket.Send(payload, offset, size, SocketFlags.None, out var socketError);
-                if (socketError == SocketError.Success)
-                    return count;
+                var count = socket.SendTo(payload, offset, size, SocketFlags.None, RemoteIPEndPoint);
+                return count;
             }
             return 0;
         }

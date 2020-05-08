@@ -250,7 +250,7 @@ public class GodDiscovery : MonoBehaviour
             // check for success:
             if (count > 0)
             {
-                // make sure the received datagram didnt come from this end-point:
+                // make sure the received datagram didn't come from this end-point:
                 if (!_localIPAddresses.Contains(remoteEndPoint.Address))
                 {
                     // check if this is a discovery datagram:
@@ -261,7 +261,7 @@ public class GodDiscovery : MonoBehaviour
                         if (additionalFields != null)
                         {
                             // this is a valid discovery datagram.
-                            if (remoteEndPoint == partner)
+                            if (remoteEndPoint.Equals(partner))
                                 // check for additional-fields consistency:
                                 keepConnection = additionalFields == _partnerAdditionalFields;
                             else if (partner == null)
@@ -277,7 +277,7 @@ public class GodDiscovery : MonoBehaviour
                         }
                         // else, ignore datagram.
                     }
-                    else if (remoteEndPoint == partner)
+                    else if (remoteEndPoint.Equals(partner))
                     {
                         // process datagram:
                         keepConnection = OnDatagramReceived(partner, buffer, 0, count);
@@ -286,8 +286,7 @@ public class GodDiscovery : MonoBehaviour
                     // check if connection should be kept:
                     if (!keepConnection)
                     {
-                        _partnerAdditionalFields = null;
-                        PartnerEndPoint = null;
+                        Reset();
                     }
                 }
                 // initiate another receive operation:
@@ -471,6 +470,12 @@ public class GodDiscovery : MonoBehaviour
         Interlocked.MemoryBarrier();
         // start the discovery thread:
         _discoveryThread.Start();
+    }
+
+    public void Reset()
+    {
+        _partnerAdditionalFields = null;
+        PartnerEndPoint = null;
     }
 
     #endregion Public Methods

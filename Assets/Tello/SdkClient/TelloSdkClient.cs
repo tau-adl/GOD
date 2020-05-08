@@ -5,6 +5,7 @@ using System.Net.Sockets;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Timers;
 using UnityEngine;
 // ReSharper disable UseNullPropagation
 
@@ -30,11 +31,11 @@ public class TelloSdkClient
     public const int DefaultControlUdpPort = 8889;
     public const int DefaultTelemetryUdpPort = 8890;
     public const string DefaultHostName = "192.168.10.1";
-    public const double DefaultStickDataIntervalMilliseconds = 20;
+    public const int DefaultStickDataIntervalMS = 20;
+    public const int KeepAliveIntervalMS = 5000;
     public const string DefaultRegion = "US";
     public const int DefaultTimeoutMS = 3000;
     public const int DefaultRetries = 0;
-    public const int TelemetryHistorySize = 1;
 
     #endregion Defaults
 
@@ -43,13 +44,13 @@ public class TelloSdkClient
     private readonly UdpClient _commandChannel;
     private readonly UdpClient _telemetryChannel;
     private readonly TelloSdkClientFlags _clientFlags;
+    private readonly IPEndPoint _droneEndPoint;
     private readonly CancellationTokenSource _cts = new CancellationTokenSource();
     private readonly System.Timers.Timer _stickDataTimer = new System.Timers.Timer();
-    private TelloSdkTelemetry[] _telemetryHistory = new TelloSdkTelemetry[1 + TelemetryHistorySize];
+    private readonly System.Timers.Timer _keepAliveTimer = new System.Timers.Timer();
     private TelloSdkStickData _stickData = new TelloSdkStickData();
     private bool _enableMissionMode;
     private ConnectionStatus _status = ConnectionStatus.Offline;
-    private IPEndPoint _droneEndPoint;
 
     #endregion Private Fields
 
@@ -74,14 +75,13 @@ public class TelloSdkClient
     
     public TelloSdkClientFlags ClientFlags => _clientFlags;
 
-    public TelloSdkTelemetry[] TelemetryHistory => _telemetryHistory;
-    public TelloSdkTelemetry Telemetry => _telemetryHistory[0];
+    public TelloSdkTelemetry Telemetry { get; private set; }
 
     public string HostName { get; private set; }
 
-    public int ControlUdpPort { get; private set; } = DefaultControlUdpPort;
+    public int ControlUdpPort { get; private set; }
 
-    public int TelemetryUdpPort { get; private set; } = DefaultTelemetryUdpPort;
+    public int TelemetryUdpPort { get; private set; }
 
     public bool IsDisposed { get; private set; }
 
@@ -101,7 +101,7 @@ public class TelloSdkClient
         }
     }
 
-    public double StickDataIntervalMilliseconds { get; set; } = DefaultStickDataIntervalMilliseconds;
+    public int StickDataIntervalMS { get; set; } = DefaultStickDataIntervalMS;
 
     public bool EnableMissionMode { get => _enableMissionMode;
         set
@@ -125,10 +125,10 @@ public class TelloSdkClient
     {
         if (hostname == null)
             throw new ArgumentNullException(nameof(hostname));
-        if (controlUdpPort <= 0 || controlUdpPort > System.Net.IPEndPoint.MaxPort)
+        if (controlUdpPort <= 0 || controlUdpPort > IPEndPoint.MaxPort)
             throw new ArgumentOutOfRangeException(nameof(controlUdpPort), controlUdpPort,
                 $"Argument '{nameof(controlUdpPort)}' is out of range.");
-        if (telemetryUdpPort <= 0 || telemetryUdpPort > System.Net.IPEndPoint.MaxPort)
+        if (telemetryUdpPort <= 0 || telemetryUdpPort > IPEndPoint.MaxPort)
             throw new ArgumentOutOfRangeException(nameof(telemetryUdpPort), telemetryUdpPort,
                 $"Argument '{nameof(telemetryUdpPort)}' is out of range.");
         HostName = hostname;
@@ -176,6 +176,8 @@ public class TelloSdkClient
         {
             if (_stickDataTimer != null)
                 _stickDataTimer.Dispose();
+            if (_keepAliveTimer != null)
+                _keepAliveTimer.Dispose();
             if (_telemetryChannel != null)
                 _telemetryChannel.Dispose();
             if (_commandChannel != null)
@@ -197,6 +199,11 @@ public class TelloSdkClient
     private async Task<UdpReceiveResult> SendCommandAsync(string command, int responseTimeoutMS, int retries)
     {
         var bytes = Encoding.ASCII.GetBytes(command);
+        if (_commandChannel == _telemetryChannel)
+        {
+            await _commandChannel.SendAsync(bytes, bytes.Length, _droneEndPoint);
+            return new UdpReceiveResult();
+        }
         var recvTask = _commandChannel.ReceiveAsync();
         do
         {
@@ -211,75 +218,11 @@ public class TelloSdkClient
         return new UdpReceiveResult();
     }
 
-    private void TelloClientWork()
-    {
-        Debug.Log($"{GetType().Name}: Tello client thread started.");
-        while (true)
-        {
-            var history = new TelloSdkTelemetry[1 + TelemetryHistorySize];
-            for (var i = 1; i < TelemetryHistorySize; ++i)
-                history[i] = _telemetryHistory[i - 1];
-            try
-            {
-                // receive a telemetry datagram from the drone:
-                var recvTask = _telemetryChannel.ReceiveAsync();
-                if (!recvTask.Wait(1000, _cts.Token))
-                {
-                    // timeout - try to tell the drone to enter SDK mode:
-                    Debug.LogWarning($"{GetType().Name}: Timeout while waiting for a telemetry datagram.");
-                    _ = SendCommandAsync("command", 0, 0);
-                    continue;
-                }
-                // parse telemetry datagram:
-                var text = Encoding.ASCII.GetString(recvTask.Result.Buffer);
-                bool ok = TelloSdkTelemetry.TryParse(text, out var telemetry);
-                if (ok)
-                {
-                    history[0] = telemetry;
-                }
-                else
-                {
-                    Debug.LogError("Failed to parse Tello telemetry.");
-                }
-            }
-            catch (AggregateException)
-            {
-                break; // operation was cancelled.
-            }
-            catch (ObjectDisposedException)
-            {
-                break;
-            }
-            catch (ThreadAbortException)
-            {
-                break;
-            }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
-            catch (Exception ex)
-            {
-                Debug.LogError(ex);
-            }
-            finally
-            {
-                _telemetryHistory = history;
-            }
-        }
-        _telemetryHistory[0] = null;
-        Debug.Log($"{GetType().Name}: Telemetry thread exiting.");
-    }
-
-
-
     private void TelemetryChannelLoop()
     {
         Debug.Log($"{GetType().Name}: Telemetry thread started.");
         while (true)
         {
-            var history = new TelloSdkTelemetry[1 + TelemetryHistorySize];
-            history[1] = _telemetryHistory[0];
             try
             {
                 // receive a telemetry datagram from the drone:
@@ -287,6 +230,7 @@ public class TelloSdkClient
                 if (!recvTask.Wait(1000, _cts.Token))
                 {
                     Status = ConnectionStatus.Timeout;
+                    Telemetry = null;
                     // timeout - try to tell the drone to enter SDK mode:
                     Debug.LogWarning($"{GetType().Name}: Timeout while waiting for a telemetry datagram.");
                     _ = SendCommandAsync("command", 0, 0);
@@ -295,14 +239,13 @@ public class TelloSdkClient
                 Status = ConnectionStatus.Online;
                 // parse telemetry datagram:
                 var text = Encoding.ASCII.GetString(recvTask.Result.Buffer);
+                if (text.StartsWith("ok", StringComparison.OrdinalIgnoreCase) ||
+                    text.StartsWith("error", StringComparison.OrdinalIgnoreCase))
+                    continue; // not a telemetry.
                 bool ok = TelloSdkTelemetry.TryParse(text, out var telemetry);                
                 if (ok)
                 {
-                    history[0] = telemetry;
-                }
-                else
-                {
-                    Debug.LogError("Failed to parse Tello telemetry.");
+                    Telemetry = telemetry;
                 }
             }
             catch (AggregateException)
@@ -325,12 +268,8 @@ public class TelloSdkClient
             {
                 Debug.LogError(ex);
             }
-            finally
-            {
-                _telemetryHistory = history;
-            }
         }
-        _telemetryHistory[0] = null;
+        Telemetry = null;
         Debug.Log($"{GetType().Name}: Telemetry thread exiting.");
     }
 
@@ -363,11 +302,14 @@ public class TelloSdkClient
             };
             telemetryThread.Start();
         }
-        if (_clientFlags.HasFlag(TelloSdkClientFlags.Control) && StickDataIntervalMilliseconds > 0)
+        if (_clientFlags.HasFlag(TelloSdkClientFlags.Control) && StickDataIntervalMS > 0)
         {
-            _stickDataTimer.Interval = StickDataIntervalMilliseconds;
+            _stickDataTimer.Interval = StickDataIntervalMS;
             _stickDataTimer.Elapsed += StickDataTimer_Elapsed;
             _stickDataTimer.Start();
+            _stickDataTimer.Interval = KeepAliveIntervalMS;
+            _keepAliveTimer.Elapsed += KeepAliveTimer_Elapsed;
+            _keepAliveTimer.Start();
         }
         return true;
     }
@@ -391,18 +333,15 @@ public class TelloSdkClient
             var stickData = _stickData;
             var stickCommand = $"rc {stickData.Roll} {stickData.Pitch} {stickData.Throttle} {stickData.Yaw}";
             var bytes = Encoding.ASCII.GetBytes(stickCommand);
-            var task = _commandChannel.SendAsync(bytes, bytes.Length, _droneEndPoint);
-            task.Wait(_cts.Token);
+            _ = _commandChannel.SendAsync(bytes, bytes.Length, _droneEndPoint);
         }
         catch (ObjectDisposedException)
         {
             restart = false;
-            return;
         }
         catch (OperationCanceledException)
         {
             restart = false;
-            return;
         }
         catch (AggregateException ex)
         {
@@ -417,6 +356,38 @@ public class TelloSdkClient
         {
             if (restart)
                 _stickDataTimer.Start();
+        }
+    }
+    private void KeepAliveTimer_Elapsed(object sender, ElapsedEventArgs e)
+    {
+        bool restart = true;
+        try
+        {
+            var bytes = Encoding.ASCII.GetBytes("command");
+            var task = _commandChannel.SendAsync(bytes, bytes.Length, _droneEndPoint);
+            task.Wait(KeepAliveIntervalMS, _cts.Token);
+        }
+        catch (ObjectDisposedException)
+        {
+            restart = false;
+        }
+        catch (OperationCanceledException)
+        {
+            restart = false;
+        }
+        catch (AggregateException ex)
+        {
+            restart = ex.InnerExceptions.Count != 1 ||
+                      !(ex.InnerExceptions[0] is ObjectDisposedException);
+        }
+        catch (Exception ex)
+        {
+            Debug.LogError(ex.ToString());
+        }
+        finally
+        {
+            if (restart)
+                _keepAliveTimer.Start();
         }
     }
 

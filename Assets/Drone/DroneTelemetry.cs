@@ -32,9 +32,6 @@ public sealed class DroneTelemetry : MonoBehaviour
 
     */
 
-    private static readonly TelloSdkTelemetry[] EmptyTelemetryHistory = new TelloSdkTelemetry[0];
-
-    public TelloSdkTelemetry[] TelemetryHistory => _client != null ? _client.TelemetryHistory : EmptyTelemetryHistory;
     public TelloSdkTelemetry Telemetry => _client != null ? _client.Telemetry : null;
 
     public ConnectionStatus Status => _client != null ? _client.Status : ConnectionStatus.Offline;

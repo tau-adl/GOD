@@ -13,6 +13,12 @@ using Vuforia;
 
 public class MultiPlayerManager2 : MonoBehaviour
 {
+    #region Constants
+
+    private const int GodUpdateTimeoutMS = 10000;
+
+    #endregion Constants
+
     #region Public Fields
 
     public PAUI_Joystick leftJoystick;
@@ -45,6 +51,8 @@ public class MultiPlayerManager2 : MonoBehaviour
     private DroneTelemetry _droneTelemetry;
     private DroneControl _droneControl;
     private GodUpdateDatagram _lastIncomingGodUpdate;
+    private DateTime _lastIncomingGodUpdateTime;
+    private DateTime _lastPartnerDisconnectTime;
     private UserDialog _userDialog;
     private int _statusFlags;
     private float _ballSpeed = GodSettings.Defaults.BallSpeed;
@@ -162,6 +170,7 @@ public class MultiPlayerManager2 : MonoBehaviour
         ComputeBallLimits();
         // enable networking:
         Debug.Log("Starting discovery");
+        _lastPartnerDisconnectTime = DateTime.Now;
         _discovery.StartDiscovery();
         // initialize GUI mode:
         Physics.gravity = new Vector3(0,GodSettings.GetGravity(),0);
@@ -191,6 +200,17 @@ public class MultiPlayerManager2 : MonoBehaviour
     }
 
     [UsedImplicitly]
+    private void FixedUpdate()
+    {
+        // send update message:
+        SendGodUpdate();
+        // process update message:
+        ProcessLastGodUpdate();
+        // make sure the ball is still inside the playground:
+        ball.transform.localPosition = EnforceBallLimits(ball.transform.localPosition);
+    }
+
+    [UsedImplicitly]
     private void Update()
     {
         try
@@ -206,12 +226,6 @@ public class MultiPlayerManager2 : MonoBehaviour
             var playgroundPositionDelta = new Vector3(stickerPosition.x, 0, stickerPosition.z);
             realDrone.transform.localPosition = EnforceDroneLimits(_initialRealDronePosition + dronePositionDelta);
             playground.transform.localPosition = _initialPlaygroundPosition + playgroundPositionDelta;
-            // send update message:
-            SendGodUpdate();
-            // process update message:
-            ProcessLastGodUpdate();
-            // make sure the ball is still inside the playground:
-            ball.transform.localPosition = EnforceBallLimits(ball.transform.localPosition);
         }
         catch (Exception ex)
         {
@@ -514,16 +528,19 @@ public class MultiPlayerManager2 : MonoBehaviour
             switch (datagram.Type)
             {
                 case GodDatagramType.Update:
+                    _lastIncomingGodUpdateTime = DateTime.Now;
                     _lastIncomingGodUpdate = (GodUpdateDatagram) datagram;
                     return true;
             }
         }
-        return false; // discard the connection.
+        return true;
     }
 
     private void MultiPlayerConnection_StatusChanged(object sender, ConnectionStatusChangedEventArgs e)
     {
         ChangeStatusFlag(GameStatusFlags.PartnerConnected, e.NewValue == ConnectionStatus.Online);
+        if (e.NewValue < ConnectionStatus.Connecting)
+            _discovery.Reset();
     }
     private void DroneTelemetry_StatusChanged(object sender, ConnectionStatusChangedEventArgs e)
     {
@@ -637,9 +654,27 @@ public class MultiPlayerManager2 : MonoBehaviour
             return;
         }
 
-        var godUpdate = _lastIncomingGodUpdate;
+        var godUpdate = Interlocked.Exchange(ref _lastIncomingGodUpdate, null);
         if (godUpdate == null)
+        {
+            /*
+            if (_multiPlayerConnection.Status == ConnectionStatus.Timeout)
+            {
+                var timeSinceLastUpdate = DateTime.Now - _lastIncomingGodUpdateTime;
+                var timeSinceLastDisconnect = DateTime.Now - _lastPartnerDisconnectTime;
+                if (timeSinceLastUpdate.TotalMilliseconds > GodUpdateTimeoutMS &&
+                    timeSinceLastDisconnect.TotalMilliseconds > GodUpdateTimeoutMS)
+                {
+                    Debug.LogError("Lost connection with other player.");
+                    UnsetStatusFlag(GameStatusFlags.PartnerDiscovered);
+                    _lastPartnerDisconnectTime = DateTime.Now;
+                    _multiPlayerConnection.Disconnect();
+                    _discovery.Reset();
+                }
+            }
+            */
             return;
+        }
 
         // update drone position:
         if (godUpdate.DronePosition.HasValue)

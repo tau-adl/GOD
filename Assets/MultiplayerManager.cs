@@ -525,8 +525,8 @@ public class MultiPlayerManager : MonoBehaviour
     {
         if (!_stickerFound)
         {
-            var telemetryHistory = _droneTelemetry.TelemetryHistory;
-            var telemetry = telemetryHistory?[0];
+            var telemetry = _droneTelemetry.Telemetry;
+            /*
             if (telemetry != null)
             {
                 var newHeight = telemetryHistory[0].Height;
@@ -536,7 +536,7 @@ public class MultiPlayerManager : MonoBehaviour
                     realDrone.transform.localPosition.x,
                     _initialRealDronePosition.y + realDrone.transform.localScale.y * (_filteredDroneHeight / 10),
                     realDrone.transform.localPosition.z);
-            }
+            }*/
         }
     }
 }
