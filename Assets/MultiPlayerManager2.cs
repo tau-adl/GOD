@@ -13,12 +13,6 @@ using Vuforia;
 
 public class MultiPlayerManager2 : MonoBehaviour
 {
-    #region Constants
-
-    private const int GodUpdateTimeoutMS = 10000;
-
-    #endregion Constants
-
     #region Public Fields
 
     public PAUI_Joystick leftJoystick;
@@ -43,7 +37,6 @@ public class MultiPlayerManager2 : MonoBehaviour
     private Rigidbody _ballRigidbody;
     private Vector3 _initialRealDronePosition;
     private Vector3 _initialPlaygroundPosition;
-    private Vector3 _initialAugmentedDronePosition;
     private Vector3 _initialRealDronePositionProviderPosition;
     private Vector3 _initialBallPosition;
     private GodDiscovery _discovery;
@@ -51,10 +44,9 @@ public class MultiPlayerManager2 : MonoBehaviour
     private DroneTelemetry _droneTelemetry;
     private DroneControl _droneControl;
     private GodUpdateDatagram _lastIncomingGodUpdate;
-    private DateTime _lastIncomingGodUpdateTime;
-    private DateTime _lastPartnerDisconnectTime;
     private UserDialog _userDialog;
     private int _statusFlags;
+    private volatile GameStatusFlags _partnerStatusFlags;
     private float _ballSpeed = GodSettings.Defaults.BallSpeed;
     private volatile bool _gameStarted;
     private bool _demoMode = GodSettings.Defaults.DemoMode;
@@ -136,7 +128,6 @@ public class MultiPlayerManager2 : MonoBehaviour
         _discovery.SetPartnerDiscoveredCallback(GodDiscovery_PartnerDiscovered);
         _initialRealDronePosition = realDrone.transform.localPosition;
         _initialPlaygroundPosition = playground.transform.localPosition;
-        _initialAugmentedDronePosition = augmentedDrone.transform.localPosition;
         _initialRealDronePositionProviderPosition = realDronePositionProvider.transform.position;
         _initialBallPosition = ball.transform.localPosition;
         _droneTelemetry = FindObjectOfType<DroneTelemetry>();
@@ -170,7 +161,6 @@ public class MultiPlayerManager2 : MonoBehaviour
         ComputeBallLimits();
         // enable networking:
         Debug.Log("Starting discovery");
-        _lastPartnerDisconnectTime = DateTime.Now;
         _discovery.StartDiscovery();
         // initialize GUI mode:
         Physics.gravity = new Vector3(0,GodSettings.GetGravity(),0);
@@ -256,10 +246,11 @@ public class MultiPlayerManager2 : MonoBehaviour
     [UsedImplicitly]
     private void UpdateGameStatus()
     {
-        var lastIncomingGodUpdate = _lastIncomingGodUpdate;
         var myFlags = (GameStatusFlags) _statusFlags;
-        var partnerFlags = lastIncomingGodUpdate != null ? lastIncomingGodUpdate.GameStatus : GameStatusFlags.None;
-        var partnerReady = partnerFlags.HasFlag(GameStatusFlags.AllClear);
+        var partnerFlags = _partnerStatusFlags;
+        var partnerReady =
+            myFlags.HasFlag(GameStatusFlags.PartnerConnected) &&
+            partnerFlags.HasFlag(GameStatusFlags.AllClear);
         if (partnerReady ^ myFlags.HasFlag(GameStatusFlags.PartnerReady))
             myFlags = ChangeStatusFlag(GameStatusFlags.PartnerReady, partnerReady);
 
@@ -304,7 +295,7 @@ public class MultiPlayerManager2 : MonoBehaviour
         }
         else
         {
-            if (_gameStarted && !partnerFlags.HasFlag(GameStatusFlags.UserReady) && !_demoMode)
+            if (!partnerFlags.HasFlag(GameStatusFlags.UserReady) && !_demoMode)
                 StopGame();
             else if (myFlags.HasFlag(GameStatusFlags.DroneAirborne) &&
                      (_demoMode || partnerFlags.HasFlag(GameStatusFlags.DroneAirborne)))
@@ -364,15 +355,6 @@ public class MultiPlayerManager2 : MonoBehaviour
     private GameStatusFlags ChangeStatusFlag(GameStatusFlags flag, bool flagValue)
     {   
         return flagValue ? SetStatusFlag(flag) : UnsetStatusFlag(flag);
-    }
-
-    /// <summary>
-    /// Safely get the value of <see cref="GameStatus"/> and reset the <seealso cref="GameStatusFlags.ValueChanged"/> flag.
-    /// </summary>
-    /// <returns>The original value of <see cref="GameStatus"/>, before the <seealso cref="GameStatusFlags.ValueChanged"/> flag was reset.</returns>
-    private GameStatusFlags GetStatusFlagsAndResetValueChanged()
-    {
-        return GameStatusFlagsExtensions.GetAndResetChanges(ref _statusFlags);
     }
 
     [UsedImplicitly]
@@ -528,9 +510,12 @@ public class MultiPlayerManager2 : MonoBehaviour
             switch (datagram.Type)
             {
                 case GodDatagramType.Update:
-                    _lastIncomingGodUpdateTime = DateTime.Now;
-                    _lastIncomingGodUpdate = (GodUpdateDatagram) datagram;
+                {
+                    var godUpdate = (GodUpdateDatagram) datagram;
+                    _lastIncomingGodUpdate = godUpdate;
+                    _partnerStatusFlags = godUpdate.GameStatus;
                     return true;
+                }
             }
         }
         return true;
@@ -596,7 +581,8 @@ public class MultiPlayerManager2 : MonoBehaviour
 
     private void ComputeDroneLimits()
     {
-        var droneSize = realDrone.transform.localScale;
+        var realDroneBox = realDrone.transform.GetChild(0);
+        var droneSize = realDroneBox.localScale;
         var minX = _leftWall.localPosition.x + droneSize.x / 2;
         var maxX = _rightWall.localPosition.x - droneSize.x / 2;
         var minY = _floor.localPosition.y + droneSize.y / 2;

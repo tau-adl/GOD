@@ -307,7 +307,7 @@ public class TelloSdkClient
             _stickDataTimer.Interval = StickDataIntervalMS;
             _stickDataTimer.Elapsed += StickDataTimer_Elapsed;
             _stickDataTimer.Start();
-            _stickDataTimer.Interval = KeepAliveIntervalMS;
+            _keepAliveTimer.Interval = KeepAliveIntervalMS;
             _keepAliveTimer.Elapsed += KeepAliveTimer_Elapsed;
             _keepAliveTimer.Start();
         }

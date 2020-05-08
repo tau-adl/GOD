@@ -234,7 +234,7 @@ public abstract class NetworkConnectionBase
                     // process datagram:
                     var keepConnection =
                         OnPacketReceived((IPEndPoint)receiveArgs.RemoteEndPoint,
-                            receiveArgs.Buffer, receiveArgs.Offset, receiveArgs.Count);
+                            receiveArgs.Buffer, receiveArgs.Offset, receiveArgs.BytesTransferred);
                     if (keepConnection)
                     {
                         Status = ConnectionStatus.Online;
