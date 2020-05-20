@@ -61,7 +61,7 @@ public class DroneSettingsManager : MonoBehaviour
     [UsedImplicitly]
     private void Start()
     {
-        droneIPAddressText.text = PlayerPrefs.GetString(SettingKeys.DroneHostName, TelloSdkClient.DefaultHostName);
+        droneIPAddressText.text = GodSettings.GetDroneHostName();
         wifiSsidText.text = PlayerPrefs.GetString(SettingKeys.WifiSsid, "");
         wifiPasswordText.text = PlayerPrefs.GetString(SettingKeys.WifiPassword, "");
         var wifiMode = PlayerPrefs.GetString(SettingKeys.DroneWifiMode, WifiMode.AccessPoint);
@@ -73,7 +73,7 @@ public class DroneSettingsManager : MonoBehaviour
     {
         try
         {
-            PlayerPrefs.SetString(SettingKeys.DroneHostName, droneIPAddressText.text);
+            GodSettings.SetDroneHostName(droneIPAddressText.text);
             var currentWifiSsid = PlayerPrefs.GetString(SettingKeys.WifiSsid, ""); 
             var desiredWifiSsid = wifiSsidText.text;
             var currentWifiPassword = PlayerPrefs.GetString(SettingKeys.WifiPassword, "");

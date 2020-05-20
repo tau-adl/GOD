@@ -29,6 +29,7 @@ public sealed class GodUpdateDatagram
 
     #region Properties
 
+    public uint SequenceNumber { get; set; }
     public Vector3? BallPosition { get; set; }
     public Vector3? BallVelocity { get; set; }
     public Vector3? DronePosition { get; set; }
@@ -49,9 +50,14 @@ public sealed class GodUpdateDatagram
         if (text == null || !text.StartsWith(GodMessages.Update, StringComparison.Ordinal))
             return false;
         var pairs = text.Split(FieldSeparator);
-        if (pairs.Length == 1)
+        if (pairs.Length <= 2)
             return true; // packet does not have a body.
-        for (var i = 1; i < pairs.Length; ++i)
+        // parse sequence number:
+        if (uint.TryParse(pairs[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var sequenceNumber))
+            datagram.SequenceNumber = sequenceNumber;
+        else return false;
+        // parse other fields:
+        for (var i = 2; i < pairs.Length; ++i)
         {
             var keyLength = pairs[i].IndexOf(KeyValueSeparator);
             if (keyLength <= 0)
@@ -113,6 +119,8 @@ public sealed class GodUpdateDatagram
     {
         var builder = new StringBuilder();
         builder.Append(GodMessages.Update);
+        builder.Append(' ');
+        builder.Append(SequenceNumber.ToString("D"));
         if (BallPosition.HasValue)
         {
             builder.Append($" {Fields.BallPosition}{KeyValueSeparator}");

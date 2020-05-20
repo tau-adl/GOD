@@ -1,26 +1,26 @@
 ﻿using System;
 using System.Linq;
-using System.Net;
 using System.Text;
 using System.Threading;
 using JetBrains.Annotations;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using Vuforia;
+using Random = System.Random;
+
 // ReSharper disable MergeConditionalExpression
 // ReSharper disable UseNullPropagation
 
 
-public class MultiPlayerManager2 : MonoBehaviour
+public class SinglePlayerManager : MonoBehaviour
 {
     #region Public Fields
-
-    public static bool SinglePlayer;
 
     public PAUI_Joystick leftJoystick;
     public PAUI_Joystick rightJoystick;
     public GameObject augmentedDrone;
     public GameObject realDrone;
+    public GameObject realDronePositionProvider;
     public GameObject droneStickerTarget;
     public GameObject ball;
     public GameObject readyButton;
@@ -39,42 +39,36 @@ public class MultiPlayerManager2 : MonoBehaviour
     private Rigidbody _ballRigidbody;
     private Vector3 _initialRealDronePosition;
     private Vector3 _initialPlaygroundPosition;
+    private Vector3 _initialDroneStickerTargetPosition;
     private Vector3 _initialBallPosition;
-    private GodDiscovery _discovery;
-    private GodMultiPlayerConnection _multiPlayerConnection;
     private DroneTelemetry _droneTelemetry;
     private DroneControl _droneControl;
-    private GodUpdateDatagram _lastIncomingGodUpdate;
     private UserDialog _userDialog;
     private int _statusFlags;
-    private volatile GameStatusFlags _partnerStatusFlags;
     private float _ballSpeed = GodSettings.Defaults.BallSpeed;
     private volatile bool _gameStarted;
-    private bool _demoMode = GodSettings.Defaults.DemoMode;
     private bool _midAirStagePositioned;
+    private Vector3 _dronePositionScaleFactor;
     private Vector3 _dronePositionBias;
     private byte _joystickSensitivity;
     private Vector3 _droneLimitsMin;
     private Vector3 _droneLimitsMax;
     private Vector3 _ballLimitsMin;
     private Vector3 _ballLimitsMax;
-    private Vector3 _droneSize;
     private Transform _leftWall;
     private Transform _rightWall;
     private Transform _ceiling;
     private Transform _floor;
+    private float _stickerPositionRadius = 20;
     private float _ballMovementSmoothingFactor = GodSettings.Defaults.BallMovementSmoothingFactor;
     private bool _droneStickerFound;
     private bool _useGravity;
-    private bool _pitchLock = true;
-
-    private readonly byte[] _godUpdateTxBuffer = new byte[GodUpdateDatagram.MaxSize];
 
     #endregion Private Fields
 
     #region Properties
 
-    public GameStatusFlags GameStatus => (GameStatusFlags) _statusFlags;
+    public GameStatusFlags GameStatus => (GameStatusFlags)_statusFlags;
 
     public GodScore Score { get; private set; }
 
@@ -96,16 +90,8 @@ public class MultiPlayerManager2 : MonoBehaviour
         {
             // suppress exceptions.
         }
-        if (_multiPlayerConnection != null)
-        {
-            _multiPlayerConnection.SetDatagramReceivedCallback(null);
-            _multiPlayerConnection.StatusChanged -= MultiPlayerConnection_StatusChanged;
-        }
-
         if (_droneClient != null)
             _droneClient.Dispose();
-        if (_discovery != null)
-            _discovery.SetPartnerDiscoveredCallback(null);
         if (_droneTelemetry != null)
             _droneTelemetry.StatusChanged -= DroneTelemetry_StatusChanged;
         if (_droneControl != null)
@@ -123,15 +109,11 @@ public class MultiPlayerManager2 : MonoBehaviour
         VuforiaARController.Instance.RegisterVuforiaStartedCallback(OnVuforiaStarted);
         Score = new GodScore();
         // initialize private fields:
-        _multiPlayerConnection = FindObjectOfType<GodMultiPlayerConnection>();
-        _multiPlayerConnection.SetDatagramReceivedCallback(MultiPlayerConnection_DatagramReceived);
-        _multiPlayerConnection.StatusChanged += MultiPlayerConnection_StatusChanged;
         _ballRigidbody = ball.GetComponent<Rigidbody>();
-        _discovery = FindObjectOfType<GodDiscovery>();
-        _discovery.SetPartnerDiscoveredCallback(GodDiscovery_PartnerDiscovered);
         _initialRealDronePosition = realDrone.transform.localPosition;
         _initialPlaygroundPosition = playground.transform.localPosition;
         _initialBallPosition = ball.transform.localPosition;
+        _initialDroneStickerTargetPosition = droneStickerTarget.transform.localPosition;
         _droneTelemetry = FindObjectOfType<DroneTelemetry>();
         _droneTelemetry.StatusChanged += DroneTelemetry_StatusChanged;
         _droneControl = FindObjectOfType<DroneControl>();
@@ -151,9 +133,7 @@ public class MultiPlayerManager2 : MonoBehaviour
         _gameStarted = false;
         _userDialog.IsVisible = false;
         // get game settings:
-        _demoMode = GodSettings.GetDemoMode();
-        if (_demoMode)
-            SinglePlayer = true;
+        _dronePositionScaleFactor = GodSettings.GetDronePositionScaleFactor();
         _dronePositionBias = GodSettings.GetDronePositionBias();
         _joystickSensitivity = GodSettings.GetJoystickSensitivity();
         _ballSpeed = GodSettings.GetBallSpeed();
@@ -162,9 +142,6 @@ public class MultiPlayerManager2 : MonoBehaviour
         FindPlaygroundWalls();
         ComputeDroneLimits();
         ComputeBallLimits();
-        // enable networking:
-        Debug.Log("Starting discovery");
-        _discovery.StartDiscovery();
         // initialize GUI mode:
         var gravity = GodSettings.GetGravity();
         _useGravity = Math.Abs(gravity) > 0.1;
@@ -198,37 +175,8 @@ public class MultiPlayerManager2 : MonoBehaviour
     [UsedImplicitly]
     private void FixedUpdate()
     {
-        // send update message:
-        SendGodUpdate();
         // process update message:
         ProcessLastGodUpdate();
-        if (SinglePlayer)
-        {
-            // check if the ball is moving in the other player's direction:
-            if (_ballRigidbody.velocity.x < 0)
-            {
-                var maxY = _droneLimitsMax.y;
-                var minY = _droneLimitsMin.y;
-                // check if the ball is above or below the augmented drone:
-                if (ball.transform.localPosition.x < _leftWall.localPosition.x + _droneSize.x)
-                {
-                    if (ball.transform.localPosition.y > augmentedDrone.transform.localPosition.y)
-                        maxY -= ball.transform.localScale.y;
-                    else
-                        minY += ball.transform.localScale.y;
-                }
-                var targetPosition = _ballRigidbody.velocity.y > 0
-                    ? new Vector3(augmentedDrone.transform.localPosition.x, maxY,
-                        augmentedDrone.transform.localPosition.z)
-                    : new Vector3(augmentedDrone.transform.localPosition.x, minY,
-                        augmentedDrone.transform.localPosition.z);
-                // move the augmented drone in the direction of the ball:
-                augmentedDrone.transform.localPosition = EnforceDroneLimits(
-                    Vector3.MoveTowards(augmentedDrone.transform.localPosition,
-                        targetPosition,
-                        _ballSpeed/2 * Time.deltaTime));
-            }
-        }
         // make sure the ball is still inside the playground:
         ball.transform.localPosition = EnforceBallLimits(ball.transform.localPosition);
     }
@@ -241,15 +189,17 @@ public class MultiPlayerManager2 : MonoBehaviour
             // update stick data:
             _droneControl.StickData.Yaw = (sbyte)(-_joystickSensitivity * leftJoystick.outputVector.x);
             _droneControl.StickData.Roll = (sbyte)(_joystickSensitivity * leftJoystick.outputVector.y);
-            _droneControl.StickData.Pitch =
-                _pitchLock ? (sbyte) 0 : (sbyte) (-_joystickSensitivity * rightJoystick.outputVector.x);
-            _droneControl.StickData.Throttle = (sbyte) (_joystickSensitivity * rightJoystick.outputVector.y);
+            _droneControl.StickData.Pitch = (sbyte)(-_joystickSensitivity * rightJoystick.outputVector.x);
+            _droneControl.StickData.Throttle = (sbyte)(_joystickSensitivity * rightJoystick.outputVector.y);
             // update real-drone position:
             if (_droneStickerFound)
             {
-                var dronePositionDelta = new Vector3(0, droneStickerTarget.transform.position.y + _dronePositionBias.y, 0);
+                var stickerPosition = _dronePositionBias + GetNormalizedStickerTargetPosition();
+                var dronePositionDelta = new Vector3(0, stickerPosition.y, 0);
+                var playgroundPositionDelta = new Vector3(stickerPosition.x, 0, stickerPosition.z);
                 realDrone.transform.localPosition = EnforceDroneLimits(_initialRealDronePosition + dronePositionDelta);
-                playground.transform.localPosition = _initialPlaygroundPosition - dronePositionDelta;
+                playground.transform.localPosition = _initialPlaygroundPosition + playgroundPositionDelta;
+                //playground.transform.rotation = realDronePositionProvider.transform.rotation;
             }
         }
         catch (Exception ex)
@@ -264,6 +214,7 @@ public class MultiPlayerManager2 : MonoBehaviour
         // maintain constant ball speed:
         if (_gameStarted)
         {
+            _ballRigidbody = ball.GetComponent<Rigidbody>();
             var currentVelocity = _ballRigidbody.velocity;
             var targetVelocity = currentVelocity.normalized * _ballSpeed;
             if (Math.Abs(targetVelocity.x) < 1)
@@ -280,14 +231,7 @@ public class MultiPlayerManager2 : MonoBehaviour
     [UsedImplicitly]
     private void UpdateGameStatus()
     {
-        var myFlags = (GameStatusFlags) _statusFlags;
-        var partnerFlags = _partnerStatusFlags;
-        var partnerReady =
-            myFlags.HasFlag(GameStatusFlags.PartnerConnected) &&
-            partnerFlags.HasFlag(GameStatusFlags.AllClear);
-        if (partnerReady ^ myFlags.HasFlag(GameStatusFlags.PartnerReady))
-            myFlags = ChangeStatusFlag(GameStatusFlags.PartnerReady, partnerReady);
-
+        var myFlags = (GameStatusFlags)_statusFlags;
         var droneTelemetry = _droneTelemetry.Telemetry;
         var droneAirborne = droneTelemetry != null && droneTelemetry.Height > 0;
         if (myFlags.HasFlag(GameStatusFlags.DroneAirborne) ^ droneAirborne)
@@ -297,7 +241,7 @@ public class MultiPlayerManager2 : MonoBehaviour
         {
             if (myFlags.HasFlag(GameStatusFlags.UserReady))
             {
-                if (myFlags.HasFlag(GameStatusFlags.AllClear) && (SinglePlayer || partnerReady))
+                if (myFlags.HasFlag(GameStatusFlags.AllClear))
                 {
                     _userDialog.IsVisible = false;
                     StartGame();
@@ -313,10 +257,6 @@ public class MultiPlayerManager2 : MonoBehaviour
                                            "  Please make sure it can be seen by the camera.");
                     if (!myFlags.HasFlag(GameStatusFlags.DroneReady))
                         builder.AppendLine("- Waiting for the drone to become ready...");
-                    if (!myFlags.HasFlag(GameStatusFlags.PartnerConnected) && !SinglePlayer)
-                        builder.AppendLine("- Waiting for the other player to connect...");
-                    else if (!myFlags.HasFlag(GameStatusFlags.PartnerReady))
-                        builder.AppendLine("- Waiting for the other player to become ready...");
                     _userDialog.BodyText = builder.ToString();
                     _userDialog.IsVisible = true;
                 }
@@ -327,39 +267,24 @@ public class MultiPlayerManager2 : MonoBehaviour
                 readyButton.SetActive(_midAirStagePositioned);
             }
         }
-        else
+        else if (myFlags.HasFlag(GameStatusFlags.DroneAirborne) && _ballRigidbody.isKinematic)
         {
-            if (!partnerFlags.HasFlag(GameStatusFlags.UserReady) && !SinglePlayer)
-                StopGame();
-            else if (myFlags.HasFlag(GameStatusFlags.DroneAirborne) &&
-                     (SinglePlayer || partnerFlags.HasFlag(GameStatusFlags.DroneAirborne)))
+            _ballRigidbody.transform.localPosition = _initialBallPosition;
+            // allow ball motion:
+            _ballRigidbody.isKinematic = false;
+            _ballRigidbody.useGravity = _useGravity;
+            if (!_useGravity)
             {
-                if (_ballRigidbody.isKinematic)
-                {
-                    _ballRigidbody.transform.localPosition = _initialBallPosition;
-                    // allow ball motion:
-                    _ballRigidbody.isKinematic = false;
-                    _ballRigidbody.useGravity = _useGravity;
-                    if (!_useGravity)
-                    {
-                        var random = new System.Random();
-                        var xDirection = random.Next(0, 1) == 0 ? -1 : 1;
-                        var yDirection = random.Next(0, 1) == 0 ? -1 : 1;
-                        var force = new Vector3(xDirection, yDirection, 0).normalized * _ballSpeed;
-                        _ballRigidbody.AddForce(force);
-                    }
-                }
+                var random = new Random();
+                var xDirection = random.Next(0, 1) == 0 ? -1 : 1;
+                var yDirection = random.Next(0, 1) == 0 ? -1 : 1;
+                var force = new Vector3(xDirection, yDirection, 0).normalized * _ballSpeed;
+                _ballRigidbody.AddForce(force);
             }
         }
     }
 
     #endregion MonoBehaviour
-
-    [UsedImplicitly]
-    public void OnPitchLockChanged(bool value)
-    {
-        _pitchLock = value;
-    }
 
     private void UserDialog_CancelButtonClick(object sender, EventArgs e)
     {
@@ -375,7 +300,6 @@ public class MultiPlayerManager2 : MonoBehaviour
     [UsedImplicitly]
     public void ShowMenu()
     {
-        StopGame();
         SceneManager.LoadScene("MainMenu");
     }
 
@@ -543,65 +467,29 @@ public class MultiPlayerManager2 : MonoBehaviour
         CameraDevice.Instance.SetField("iso", "auto");
     }
 
-    private bool GodDiscovery_PartnerDiscovered(GodDiscovery sender, IPEndPoint remoteEndPoint, string additionalFields)
-    {
-        var localIPAddress = NetUtils.GetLocalIPAddress(remoteEndPoint.Address);
-        if (localIPAddress == null)
-            return false;
-        SetStatusFlag(GameStatusFlags.PartnerDiscovered);
-        _multiPlayerConnection.Connect(localIPAddress, remoteEndPoint.Address);
-        return true;
-    }
-
-    private bool MultiPlayerConnection_DatagramReceived(object sender, IPEndPoint remoteEndPoint, byte[] buffer, int offset, int count)
-    {
-        if (GodDatagram.TryDeserialize(buffer, offset, count, out var datagram))
-        {
-            switch (datagram.Type)
-            {
-                case GodDatagramType.Update:
-                {
-                    var godUpdate = (GodUpdateDatagram) datagram;
-                    _lastIncomingGodUpdate = godUpdate;
-                    _partnerStatusFlags = godUpdate.GameStatus;
-                    return true;
-                }
-            }
-        }
-        return true;
-    }
-
-    private void MultiPlayerConnection_StatusChanged(object sender, ConnectionStatusChangedEventArgs e)
-    {
-        ChangeStatusFlag(GameStatusFlags.PartnerConnected, e.NewValue == ConnectionStatus.Online);
-        if (e.NewValue < ConnectionStatus.Offline)
-            _discovery.Reset();
-    }
     private void DroneTelemetry_StatusChanged(object sender, ConnectionStatusChangedEventArgs e)
     {
         ChangeStatusFlag(GameStatusFlags.DroneReady, e.NewValue == ConnectionStatus.Online);
     }
+
     private void DroneControl_StatusChanged(object sender, ConnectionStatusChangedEventArgs e)
     {
-        
+
     }
 
     private void Ball_CollisionEnter(MonoBehaviour source, Collision collision)
     {
         var go = collision.collider.gameObject;
-        if (_multiPlayerConnection.IsMaster || SinglePlayer)
+        switch (go.name)
         {
-            switch (go.name)
-            {
-                case "LeftWall":
-                    ++Score.MyScore;
-                    scoreText.text = $"{Score.MyScore}/{Score.TheirScore}";
-                    break;
-                case "RightWall":
-                    ++Score.TheirScore;
-                    scoreText.text = $"{Score.MyScore}/{Score.TheirScore}";
-                    break;
-            }
+            case "LeftWall":
+                ++Score.MyScore;
+                scoreText.text = $"{Score.MyScore}/{Score.TheirScore}";
+                break;
+            case "RightWall":
+                ++Score.TheirScore;
+                scoreText.text = $"{Score.MyScore}/{Score.TheirScore}";
+                break;
         }
     }
 
@@ -625,18 +513,18 @@ public class MultiPlayerManager2 : MonoBehaviour
                     break;
             }
         }
-        if (new[] {_leftWall, _rightWall, _ceiling, _floor}.Any(plane => plane == null))
+        if (new[] { _leftWall, _rightWall, _ceiling, _floor }.Any(plane => plane == null))
             Debug.LogError("Could not find all playground walls.");
     }
 
     private void ComputeDroneLimits()
     {
         var realDroneBox = realDrone.transform.GetChild(0);
-        _droneSize = realDroneBox.localScale;
-        var minX = _leftWall.localPosition.x + _droneSize.x / 2;
-        var maxX = _rightWall.localPosition.x - _droneSize.x / 2;
-        var minY = _floor.localPosition.y + _droneSize.y / 2;
-        var maxY = _ceiling.localPosition.y - _droneSize.y / 2;
+        var droneSize = realDroneBox.localScale;
+        var minX = _leftWall.localPosition.x + droneSize.x / 2;
+        var maxX = _rightWall.localPosition.x - droneSize.x / 2;
+        var minY = _floor.localPosition.y + droneSize.y / 2;
+        var maxY = _ceiling.localPosition.y - droneSize.y / 2;
         _droneLimitsMin = new Vector3(minX, minY, float.NegativeInfinity);
         _droneLimitsMax = new Vector3(maxX, maxY, float.PositiveInfinity);
     }
@@ -684,56 +572,21 @@ public class MultiPlayerManager2 : MonoBehaviour
 
     private void ProcessLastGodUpdate()
     {
-        if (_demoMode)
-        {
-            augmentedDrone.transform.localPosition = EnforceDroneLimits(realDrone.transform.localPosition);
-            return;
-        }
-        var godUpdate = Interlocked.Exchange(ref _lastIncomingGodUpdate, null);
-        if (godUpdate == null)
-            return;
-
-        // update drone position:
-        if (godUpdate.DronePosition.HasValue)
-            augmentedDrone.transform.localPosition = EnforceDroneLimits(godUpdate.DronePosition.Value);
-
-        if (!_multiPlayerConnection.IsMaster)
-        {
-            // update score according to master:
-            if (godUpdate.Score != null && !Score.ScoreEquals(godUpdate.Score))
-            {
-                Score = godUpdate.Score;
-                scoreText.text = $"{Score.TheirScore}/{Score.MyScore}";
-
-                // update ball position and speed according to master:
-                if (godUpdate.BallPosition.HasValue && godUpdate.BallVelocity.HasValue)
-                {
-                    ball.transform.localPosition = godUpdate.BallPosition.Value;
-                    _ballRigidbody.velocity = godUpdate.BallVelocity.Value;
-                }
-            }
-        }
+        augmentedDrone.transform.localPosition = EnforceDroneLimits(realDrone.transform.localPosition);
     }
 
-    private void SendGodUpdate()
+    private Vector3 GetNormalizedStickerTargetPosition()
     {
-        try
-        {
-            var datagram = new GodUpdateDatagram
-            {
-                BallPosition = ball.transform.localPosition,
-                BallVelocity = _ballRigidbody.velocity,
-                DronePosition = realDrone.transform.localPosition,
-                Score = Score,
-                GameStatus = GameStatus
-            };
-            var count = datagram.Serialize(_godUpdateTxBuffer, 0);
-            if (_multiPlayerConnection != null)
-                _multiPlayerConnection.Send(_godUpdateTxBuffer, 0, count);
-        }
-        catch (Exception ex)
-        {
-            Debug.LogError(ex);
-        }
+        var x = (realDronePositionProvider.transform.position.x - _initialDroneStickerTargetPosition.x);
+        var y = (realDronePositionProvider.transform.position.y - _initialDroneStickerTargetPosition.y);
+        var z = (realDronePositionProvider.transform.position.z - _initialDroneStickerTargetPosition.z);
+        // limit sticker position coordinates:
+        if (Math.Abs(x) > _stickerPositionRadius)
+            x = Math.Sign(x) * _stickerPositionRadius;
+        if (Math.Abs(y) > _stickerPositionRadius)
+            y = Math.Sign(y) * _stickerPositionRadius;
+        if (Math.Abs(z) > _stickerPositionRadius)
+            z = Math.Sign(z) * _stickerPositionRadius;
+        return new Vector3(x * _dronePositionScaleFactor.x, y * _dronePositionScaleFactor.y, z * _dronePositionScaleFactor.z);
     }
 }

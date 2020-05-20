@@ -14,6 +14,7 @@ public static class GodSettings
         public const string Gravity = "Gravity";
         public const string BallSpeed = "BallSpeed";
         public const string BallMovementSmoothingFactor = "BallMovementSmoothingFactor";
+        public const string DroneHostName = "DroneHostName";
     }
 
     public static class Defaults
@@ -23,8 +24,9 @@ public static class GodSettings
         public const bool DemoMode = false;
         public const byte JoystickSensitivity = 50;
         public const float Gravity = -9.81F;
-        public const float BallSpeed = 10;
+        public const float BallSpeed = 6;
         public const float BallMovementSmoothingFactor = 1;
+        public const string DroneHostName = "192.168.10.1";
     }
 
     #endregion Constants
@@ -313,6 +315,16 @@ public static class GodSettings
     {
         return float.TryParse(text, out var speed) &&
                TrySetBallSpeed(speed);
+    }
+
+    public static string GetDroneHostName()
+    {
+        return PlayerPrefs.GetString(Keys.DroneHostName, Defaults.DroneHostName);
+    }
+
+    public static void SetDroneHostName(string droneHostName)
+    {
+        PlayerPrefs.SetString(Keys.DroneHostName, droneHostName);
     }
 
     #endregion Public Methods

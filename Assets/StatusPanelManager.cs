@@ -78,12 +78,16 @@ public class StatusPanelManager : MonoBehaviour
                     ? _droneLedGreen.texture
                     : _droneLedYellow.texture
                 : _droneLedOff.texture;
-        userLed.texture =
-            statusFlags.HasFlag(GameStatusFlags.PartnerConnected)
-                ? statusFlags.HasFlag(GameStatusFlags.PartnerReady)
-                    ? _userLedGreen.texture
-                    : _userLedYellow.texture
-                : _userLedOff.texture;
+        if (userLed != null)
+        {
+            userLed.texture =
+                statusFlags.HasFlag(GameStatusFlags.PartnerConnected)
+                    ? statusFlags.HasFlag(GameStatusFlags.PartnerReady)
+                        ? _userLedGreen.texture
+                        : _userLedYellow.texture
+                    : _userLedOff.texture;
+        }
+
         arLed.texture =
             statusFlags.HasFlag(GameStatusFlags.VuforiaReady)
                 ? _arLedGreen.texture
@@ -91,20 +95,20 @@ public class StatusPanelManager : MonoBehaviour
     }
 
     /// <summary>
-    /// Safely set a flag on <see cref="GameStatus"/>.
+    /// Safely set a flag on <see cref="StatusFlags"/>.
     /// </summary>
     /// <param name="flag">the flag to set.</param>
-    /// <returns>The new value of <see cref="GameStatus"/>.</returns>
+    /// <returns>The new value of <see cref="StatusFlags"/>.</returns>
     public GameStatusFlags SetStatusFlag(GameStatusFlags flag)
     {
         return flag.SetOnField(ref _statusFlags);
     }
 
     /// <summary>
-    /// Safely unset a flag on <see cref="GameStatus"/>.
+    /// Safely unset a flag on <see cref="StatusFlags"/>.
     /// </summary>
     /// <param name="flag">the flag to unset.</param>
-    /// <returns>The new value of <see cref="GameStatus"/>.</returns>
+    /// <returns>The new value of <see cref="StatusFlags"/>.</returns>
     public GameStatusFlags UnsetStatusFlag(GameStatusFlags flag)
     {
         return flag.UnsetOnField(ref _statusFlags);
@@ -116,9 +120,9 @@ public class StatusPanelManager : MonoBehaviour
     }
 
     /// <summary>
-    /// Safely get the value of <see cref="GameStatus"/> and reset the <seealso cref="GameStatusFlags.ValueChanged"/> flag.
+    /// Safely get the value of <see cref="StatusFlags"/> and reset the <seealso cref="GameStatusFlags.ValueChanged"/> flag.
     /// </summary>
-    /// <returns>The original value of <see cref="GameStatus"/>, before the <seealso cref="GameStatusFlags.ValueChanged"/> flag was reset.</returns>
+    /// <returns>The original value of <see cref="StatusFlags"/>, before the <seealso cref="GameStatusFlags.ValueChanged"/> flag was reset.</returns>
     private GameStatusFlags GetStatusFlagsAndResetValueChanged()
     {
         return GameStatusFlagsExtensions.GetAndResetChanges(ref _statusFlags);

@@ -24,6 +24,8 @@ public class DroneContainerMesh : MonoBehaviour
 
 
         var meshFilter = GetComponent<MeshFilter>();
+        if (meshFilter.sharedMesh == null)
+            meshFilter.sharedMesh = new Mesh();
         var mesh = meshFilter.sharedMesh;
         var frontTopY = max.y - (float)Math.Tan(topSlopeRadians);
         var frontBottomY = min.y + (float)Math.Tan(bottomSlopeRadians);

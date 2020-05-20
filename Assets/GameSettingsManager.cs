@@ -1,4 +1,5 @@
-﻿using JetBrains.Annotations;
+﻿using System;
+using JetBrains.Annotations;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 using UnityEngine.UI;
@@ -11,6 +12,7 @@ public class GameSettingsManager : MonoBehaviour
     public Slider ballSpeedSlider;
 
     public Toggle demoModeToggle;
+    public Toggle gravityToggle;
 
     [UsedImplicitly]
     private void Start()
@@ -20,6 +22,7 @@ public class GameSettingsManager : MonoBehaviour
         biasInputField.text = GodSettings.GetDronePositionBiasText();
         joystickSensitivitySlider.value = GodSettings.GetJoystickSensitivity();
         ballSpeedSlider.value = GodSettings.GetBallSpeed();
+        gravityToggle.isOn = Math.Abs(GodSettings.GetGravity()) > 0;
     }
 
     public void ShowMainMenu()
@@ -34,6 +37,7 @@ public class GameSettingsManager : MonoBehaviour
         GodSettings.TrySetDronePositionScaleFactor(scaleFactorInputField.text);
         GodSettings.TrySetJoystickSensitivity((int) joystickSensitivitySlider.value);
         GodSettings.TrySetBallSpeed(ballSpeedSlider.value);
+        GodSettings.SetGravity(gravityToggle.isOn ? -9.81F : 0);
     }
 
     [UsedImplicitly]
